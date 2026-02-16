@@ -4,17 +4,17 @@
 <meta charset="UTF-8">
 <title>Chatt Web - Discord Klonu</title>
 <style>
-/* Temel sayfa ve Discord tarzı layout */
 body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; background:#36393f; color:white; }
-#sidebar { width:250px; background:#2f3136; display:flex; flex-direction:column; padding:15px; }
-#logo { text-align:center; font-size:22px; font-weight:bold; margin-bottom:15px; color:#7289da; }
-#users { flex:1; overflow-y:auto; margin-top:10px; }
-.user { padding:8px 10px; border-radius:5px; margin:5px 0; background:#40444b; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
-.user.admin { background:#ff4757; }
+#sidebar { width:250px; background:#2f3136; display:flex; flex-direction:column; padding:10px; }
+#logo { text-align:center; font-size:20px; font-weight:bold; color:#7289da; margin-bottom:10px; }
+#users { flex:1; overflow-y:auto; }
+.user { padding:5px 10px; margin:5px 0; border-radius:5px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; background:#40444b; }
 .user:hover { background:#5865f2; }
+.user.admin { background:#ff4757; }
+.user .status { width:10px; height:10px; border-radius:50%; margin-right:5px; }
 #main { flex:1; display:flex; flex-direction:column; position:relative; }
 #chat { flex:1; overflow-y:auto; padding:10px; }
-.msg { background:#40444b; padding:8px 10px; border-radius:5px; margin:5px 0; display:flex; justify-content:space-between; align-items:center; }
+.msg { background:#40444b; padding:5px 10px; border-radius:5px; margin:5px 0; display:flex; align-items:center; }
 .msg.admin { border:2px solid #ff4757; }
 .msg img.avatar { width:30px; height:30px; border-radius:50%; margin-right:8px; }
 .msg button { background:#ff4d4d; border:none; padding:2px 6px; border-radius:5px; cursor:pointer; }
@@ -23,16 +23,19 @@ body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; 
 #input-container input { flex:1; padding:8px; border-radius:5px; border:none; }
 #input-container button { padding:8px 12px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
 #input-container button:hover { background:#5b6eae; }
-/* Modal login */
 #loginModal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; justify-content:center; align-items:center; z-index:999; }
 #loginModal .modal-content { background:#2f3136; padding:20px; border-radius:10px; display:flex; flex-direction:column; gap:10px; width:300px; }
 #loginModal input { padding:8px; border-radius:5px; border:none; width:100%; }
 #loginModal button { padding:8px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
 #loginModal button:hover { background:#5b6eae; }
-/* Profil panel */
 #profilePanel { position:absolute; bottom:10px; left:10px; background:#2f3136; padding:10px; border-radius:8px; display:flex; align-items:center; gap:10px; }
 #profilePanel img { width:40px; height:40px; border-radius:50%; cursor:pointer; }
 #profilePanel span { cursor:pointer; }
+.status-dot { width:12px; height:12px; border-radius:50%; margin-right:5px; display:inline-block; }
+.status-online { background:#43b581; }
+.status-offline { background:#747f8d; }
+.status-idle { background:#faa61a; }
+.status-dnd { background:#f04747; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"></script>
@@ -54,10 +57,15 @@ body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; 
   <div id="profilePanel">
     <img id="profileAvatar" src="https://i.pravatar.cc/40" title="Avatarını değiştir">
     <span id="profileNickname">Nickname</span>
+    <select id="statusSelect">
+      <option value="online">Çevrimiçi</option>
+      <option value="idle">Boşta</option>
+      <option value="dnd">Rahatsız Etme</option>
+      <option value="offline">Offline</option>
+    </select>
   </div>
 </div>
 
-<!-- Modal login -->
 <div id="loginModal">
   <div class="modal-content">
     <h3>Giriş / Kayıt</h3>
@@ -74,7 +82,7 @@ body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase, ref, push, onChildAdded, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-// Firebase config
+// Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
   authDomain: "chatt-5c23d.firebaseapp.com",
@@ -87,62 +95,103 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Login / Kayıt
-let username, nickname, isAdmin=false, avatar="";
+let username, nickname, avatar, isAdmin=false, status="online";
+
 const loginModal = document.getElementById("loginModal");
+const messageInput = document.getElementById("message");
+const sendBtn = document.getElementById("sendBtn");
+const voiceBtn = document.getElementById("voiceBtn");
+const chatDiv = document.getElementById("chat");
+const usersDiv = document.getElementById("users");
+const profileAvatar = document.getElementById("profileAvatar");
+const profileNickname = document.getElementById("profileNickname");
+const statusSelect = document.getElementById("statusSelect");
+
+// Küfür filtresi
+const banned = ["ananı","orospu","amk","sik","piç","yarrak"];
+
+function filterText(text){
+  let filtered = text;
+  banned.forEach(word=>{
+    const regex = new RegExp(word,"gi");
+    filtered = filtered.replace(regex,"****");
+  });
+  return filtered;
+}
+
+// Login / Kayıt
 document.getElementById("loginBtn").onclick = ()=>{
   username = document.getElementById("loginUsername").value.trim();
   const password = document.getElementById("loginPassword").value.trim();
   nickname = document.getElementById("loginNickname").value.trim();
-  const email = document.getElementById("loginEmail").value.trim();
   avatar = document.getElementById("loginAvatar").value.trim() || "https://i.pravatar.cc/40";
-  if(!username || !password || !nickname) return alert("Kullanıcı adı, şifre ve nickname zorunlu!");
+  const email = document.getElementById("loginEmail").value.trim();
 
+  if(!username || !password || !nickname) return alert("Kullanıcı adı, şifre ve nickname zorunlu!");
+  
   // Aloak1 admin kontrol
   if(username==="Aloak1" && password!=="1234") return alert("Yanlış şifre!");
   if(username==="Aloak1") isAdmin=true;
 
+  // localStorage ile sakla
+  localStorage.setItem("username",username);
+  localStorage.setItem("nickname",nickname);
+  localStorage.setItem("avatar",avatar);
+  localStorage.setItem("isAdmin",isAdmin);
+
   loginModal.style.display="none";
-  document.getElementById("message").disabled=false;
-  document.getElementById("sendBtn").disabled=false;
-  document.getElementById("voiceBtn").disabled=false;
+  messageInput.disabled=false;
+  sendBtn.disabled=false;
+  voiceBtn.disabled=false;
 
-  // Profil panel güncelle
-  document.getElementById("profileAvatar").src=avatar;
-  document.getElementById("profileNickname").innerText=nickname;
+  profileAvatar.src=avatar;
+  profileNickname.innerText=nickname;
 
-  // Kullanıcıyı Firebase ekle
-  push(ref(db,"users"),{username,nickname,avatar,email,admin:isAdmin,online:true});
+  push(ref(db,"users"),{username,nickname,avatar,email,admin:isAdmin,online:true,status:status});
 }
 
-// Chat
-const chatDiv = document.getElementById("chat");
+// F5 sonrası otomatik login
+window.onload = ()=>{
+  if(localStorage.getItem("username")){
+    username = localStorage.getItem("username");
+    nickname = localStorage.getItem("nickname");
+    avatar = localStorage.getItem("avatar");
+    isAdmin = localStorage.getItem("isAdmin")==="true";
+    loginModal.style.display="none";
+    messageInput.disabled=false;
+    sendBtn.disabled=false;
+    voiceBtn.disabled=false;
+    profileAvatar.src=avatar;
+    profileNickname.innerText=nickname;
+    push(ref(db,"users"),{username,nickname,avatar,admin:isAdmin,online:true,status:status});
+  }
+}
+
+// Mesaj gönderme
 window.sendMessage = ()=>{
-  const messageInput = document.getElementById("message");
-  const text = messageInput.value.trim();
+  const text = filterText(messageInput.value.trim());
   if(!text) return;
-  const banned = ["badword1","badword2"];
-  let filteredText = text;
-  banned.forEach(word=>{ filteredText = filteredText.replace(new RegExp(word,"gi"),"***"); });
-  push(ref(db,"messages"), {user: username, nickname, avatar, text: filteredText, uid: username});
+  push(ref(db,"messages"),{uid:username,nickname,avatar,text});
   messageInput.value="";
 }
 
+// Mesaj silme
 window.deleteMessage = (msg)=>{
   if(msg.uid===username || isAdmin) remove(ref(db,"messages/"+msg.id));
 }
 
+// Banlama
 window.banUser = (userId)=>{
   if(isAdmin) remove(ref(db,"users/"+userId));
 }
 
-// Mesaj ekleme
-onChildAdded(ref(db,"messages"), snapshot=>{
-  const msg = snapshot.val();
-  const id = snapshot.key;
+// Mesajları ekleme
+onChildAdded(ref(db,"messages"), snap=>{
+  const msg = snap.val();
+  const id = snap.key;
   const div = document.createElement("div");
   div.className="msg";
-  if(msg.user==="Aloak1") div.classList.add("admin");
+  if(msg.uid==="Aloak1") div.classList.add("admin");
   div.id="msg-"+id;
   const avatarImg = `<img class="avatar" src="${msg.avatar}" />`;
   if(msg.uid===username || isAdmin){
@@ -155,26 +204,30 @@ onChildAdded(ref(db,"messages"), snapshot=>{
 });
 
 // Kullanıcı listesi
-const usersDiv = document.getElementById("users");
-onValue(ref(db,"users"), snapshot=>{
+onValue(ref(db,"users"), snap=>{
   usersDiv.innerHTML="";
-  snapshot.forEach(child=>{
+  snap.forEach(child=>{
     const data = child.val();
     const uname = child.key;
     const div = document.createElement("div");
     div.className="user";
+    let statusClass = "status-online";
+    if(data.status==="idle") statusClass="status-idle";
+    else if(data.status==="dnd") statusClass="status-dnd";
+    else if(data.status==="offline") statusClass="status-offline";
     if(data.admin) div.classList.add("admin");
-    div.innerHTML=`<img class="avatar" src="${data.avatar}" /> ${data.nickname} ${isAdmin ? `<button onclick="banUser('${uname}')">Ban</button>` : ""}`;
+    div.innerHTML=`<span class="status-dot ${statusClass}"></span><img class="avatar" src="${data.avatar}" /> ${data.nickname} ${isAdmin ? `<button onclick="banUser('${uname}')">Ban</button>` : ""}`;
     usersDiv.appendChild(div);
   });
 });
 
 // Event listeners
-document.getElementById("sendBtn").addEventListener("click", sendMessage);
-document.getElementById("message").addEventListener("keypress", e=>{ if(e.key==="Enter") sendMessage(); });
-document.getElementById("voiceBtn").onclick=()=>{ alert("Sesli sohbet demo açıldı!"); }
+sendBtn.addEventListener("click", sendMessage);
+messageInput.addEventListener("keypress", e=>{ if(e.key==="Enter") sendMessage(); });
+voiceBtn.onclick=()=>{ alert("Sesli sohbet demo açıldı!"); }
+profileAvatar.onclick=()=>{ let newAvatar=prompt("Yeni Avatar URL:"); if(newAvatar){ profileAvatar.src=newAvatar; avatar=newAvatar; localStorage.setItem("avatar",avatar); } }
+statusSelect.onchange=()=>{ status=statusSelect.value; }
 
 </script>
-
 </body>
 </html>
