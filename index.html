@@ -4,12 +4,13 @@
 <meta charset="UTF-8">
 <title>Pico Park Clone</title>
 <style>
-  body { display: flex; justify-content: center; align-items: center; height: 100vh; background: #87ceeb; margin:0; }
-  #game { position: relative; width: 600px; height: 400px; background: #8B4513; border: 5px solid #000; }
-  .player { width: 30px; height: 30px; position: absolute; border-radius: 5px; }
-  #player1 { background: red; top: 50px; left: 50px; }
-  #player2 { background: blue; top: 50px; left: 100px; }
-  .goal { width: 30px; height: 30px; position: absolute; background: yellow; top: 300px; left: 500px; border-radius: 5px; }
+body { margin:0; background:#87ceeb; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; }
+#game { width:800px; height:500px; background:#a3d9a5; position:relative; border:5px solid #333; overflow:hidden; }
+.player { width:40px; height:40px; position:absolute; border-radius:5px; }
+#player1 { background:red; top:50px; left:50px; }
+#player2 { background:blue; top:50px; left:120px; }
+.goal { width:40px; height:40px; background:yellow; position:absolute; top:400px; left:700px; border-radius:5px; }
+.block { width:60px; height:60px; background:#654321; position:absolute; }
 </style>
 </head>
 <body>
@@ -18,6 +19,11 @@
   <div id="player1" class="player"></div>
   <div id="player2" class="player"></div>
   <div class="goal"></div>
+  
+  <!-- Basit bloklar/platformlar -->
+  <div class="block" style="top:200px; left:200px;"></div>
+  <div class="block" style="top:300px; left:300px;"></div>
+  <div class="block" style="top:250px; left:500px;"></div>
 </div>
 
 <script>
@@ -25,38 +31,56 @@ const p1 = document.getElementById("player1");
 const p2 = document.getElementById("player2");
 const goal = document.querySelector(".goal");
 const game = document.getElementById("game");
+const blocks = Array.from(document.getElementsByClassName("block"));
 
 let p1Pos = {x:50, y:50};
-let p2Pos = {x:100, y:50};
+let p2Pos = {x:120, y:50};
+let speed = 10;
 
 function movePlayer(player, pos) {
   player.style.left = pos.x + "px";
   player.style.top = pos.y + "px";
 }
 
+function isColliding(pos) {
+  return blocks.some(b => {
+    const bx = parseInt(b.style.left);
+    const by = parseInt(b.style.top);
+    return pos.x < bx+60 && pos.x+40 > bx && pos.y < by+60 && pos.y+40 > by;
+  });
+}
+
 document.addEventListener("keydown", (e) => {
+  let newP1 = {...p1Pos};
+  let newP2 = {...p2Pos};
+
   // Player 1 - WASD
-  if(e.key === "w") p1Pos.y -= 10;
-  if(e.key === "s") p1Pos.y += 10;
-  if(e.key === "a") p1Pos.x -= 10;
-  if(e.key === "d") p1Pos.x += 10;
+  if(e.key==="w") newP1.y -= speed;
+  if(e.key==="s") newP1.y += speed;
+  if(e.key==="a") newP1.x -= speed;
+  if(e.key==="d") newP1.x += speed;
+
   // Player 2 - Arrow keys
-  if(e.key === "ArrowUp") p2Pos.y -= 10;
-  if(e.key === "ArrowDown") p2Pos.y += 10;
-  if(e.key === "ArrowLeft") p2Pos.x -= 10;
-  if(e.key === "ArrowRight") p2Pos.x += 10;
+  if(e.key==="ArrowUp") newP2.y -= speed;
+  if(e.key==="ArrowDown") newP2.y += speed;
+  if(e.key==="ArrowLeft") newP2.x -= speed;
+  if(e.key==="ArrowRight") newP2.x += speed;
+
+  // Çarpışma kontrolü
+  if(!isColliding(newP1)) p1Pos = newP1;
+  if(!isColliding(newP2)) p2Pos = newP2;
 
   movePlayer(p1, p1Pos);
   movePlayer(p2, p2Pos);
 
-  // Check goal
-  if(Math.abs(p1Pos.x - parseInt(goal.style.left)) < 30 &&
-     Math.abs(p1Pos.y - parseInt(goal.style.top)) < 30 &&
-     Math.abs(p2Pos.x - parseInt(goal.style.left)) < 30 &&
-     Math.abs(p2Pos.y - parseInt(goal.style.top)) < 30){
+  // Hedef kontrolü
+  const gx = parseInt(goal.style.left);
+  const gy = parseInt(goal.style.top);
+  if(Math.abs(p1Pos.x-gx)<40 && Math.abs(p1Pos.y-gy)<40 &&
+     Math.abs(p2Pos.x-gx)<40 && Math.abs(p2Pos.y-gy)<40){
     alert("Tebrikler! İkiniz de hedefe ulaştınız!");
-    p1Pos = {x:50,y:50};
-    p2Pos = {x:100,y:50};
+    p1Pos = {x:50, y:50};
+    p2Pos = {x:120, y:50};
     movePlayer(p1, p1Pos);
     movePlayer(p2, p2Pos);
   }
