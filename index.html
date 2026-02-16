@@ -2,168 +2,99 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pico Park Web - Online Multiplayer</title>
+    <title>Pico Park Fix</title>
     <style>
-        body { margin: 0; background: #1a1a1a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-        #menu { background: #2c3e50; padding: 30px; border-radius: 15px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; width: 320px; }
-        h1 { color: #f1c40f; margin-bottom: 20px; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
-        input { padding: 12px; margin: 8px 0; border-radius: 8px; border: none; width: 90%; font-size: 16px; outline: none; }
-        button { padding: 12px; cursor: pointer; background: #27ae60; color: white; border: none; border-radius: 8px; width: 100%; font-weight: bold; font-size: 16px; transition: 0.3s; margin-top: 10px; }
-        button:hover { background: #2ecc71; transform: scale(1.02); }
-        canvas { background: #ecf0f1; border: 8px solid #34495e; border-radius: 10px; display: none; cursor: none; }
-        #ui { position: absolute; top: 20px; left: 20px; display: none; pointer-events: none; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
-        .controls-hint { position: absolute; bottom: 20px; color: #bdc3c7; font-size: 14px; }
+        body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
+        #menu { background: #333; padding: 20px; border-radius: 10px; text-align: center; }
+        input { display: block; margin: 10px auto; padding: 10px; border-radius: 5px; border: none; }
+        button { padding: 10px 20px; background: #27ae60; color: white; border: none; cursor: pointer; border-radius: 5px; }
+        canvas { background: #fff; border: 5px solid #555; display: none; }
     </style>
 </head>
 <body>
 
     <div id="menu">
-        <h1>PICO CLONE</h1>
-        <input type="text" id="pName" placeholder="Karakter Adı" maxlength="10">
-        <input type="text" id="rName" placeholder="Oda Şifresi / Adı">
+        <h2>PICO PARK CLONE</h2>
+        <input type="text" id="pName" placeholder="Adın">
+        <input type="text" id="rName" placeholder="Oda Adı">
         <button id="joinBtn">OYUNA KATIL</button>
+        <p id="status" style="font-size: 12px; color: #e74c3c;"></p>
     </div>
 
-    <div id="ui">
-        <div id="roomInfo" style="font-weight: bold; font-size: 20px;">ODA: -</div>
-        <div id="playerCount">Oyuncu: 0</div>
-    </div>
-
-    <canvas id="gameCanvas" width="900" height="500"></canvas>
-    <div class="controls-hint">Yön Tuşları: Hareket | W / Boşluk: Zıpla</div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, onDisconnect, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // --- FIREBASE AYARLARINI BURAYA YAPIŞTIR ---
+        // !!! BURAYI DOLDURMAZSAN OYUN BAŞLAMAZ !!!
         const firebaseConfig = {
-            apiKey: "SENIN_API_KEY",
-            authDomain: "SENIN_PROJECT_ID.firebaseapp.com",
-            databaseURL: "https://SENIN_PROJECT_ID.firebaseio.com",
-            projectId: "SENIN_PROJECT_ID",
-            storageBucket: "SENIN_PROJECT_ID.appspot.com",
-            messagingSenderId: "...",
+            apiKey: "BURAYA_KENDI_ANAHTARIN",
+            authDomain: "PROJE_ADIN.firebaseapp.com",
+            databaseURL: "https://PROJE_ADIN-default-rtdb.firebaseio.com",
+            projectId: "PROJE_ADIN",
+            storageBucket: "PROJE_ADIN.appspot.com",
             appId: "..."
         };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+        const joinBtn = document.getElementById("joinBtn");
+        const status = document.getElementById("status");
 
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        const menu = document.getElementById("menu");
-        const ui = document.getElementById("ui");
+        joinBtn.onclick = () => {
+            if(firebaseConfig.apiKey === "BURAYA_KENDI_ANAHTARIN") {
+                status.innerText = "Hata: Önce Firebase ayarlarını kodun içine yapıştırmalısın!";
+                return;
+            }
 
-        let myId, myRoom, myData;
-        let players = {};
-        const gravity = 0.6;
-        const keys = {};
-
-        document.getElementById("joinBtn").onclick = () => {
-            const name = document.getElementById("pName").value || "Adsız";
-            myRoom = document.getElementById("rName").value || "lobby";
-            myId = "p_" + Math.random().toString(36).substr(2, 5);
-
-            myData = {
-                id: myId,
-                name: name,
-                x: 100 + Math.random() * 200,
-                y: 300,
-                vx: 0, vy: 0,
-                color: `hsl(${Math.random() * 360}, 75%, 60%)`,
-                grounded: false
-            };
-
-            // Firebase Bağlantısını Kur
-            const playerRef = ref(db, `rooms/${myRoom}/players/${myId}`);
-            set(playerRef, myData);
-            onDisconnect(playerRef).remove();
-
-            // Ekranı Değiştir
-            menu.style.display = "none";
-            canvas.style.display = "block";
-            ui.style.display = "block";
-            document.getElementById("roomInfo").innerText = "ODA: " + myRoom.toUpperCase();
-
-            // Verileri Dinle
-            onValue(ref(db, `rooms/${myRoom}/players`), (snap) => {
-                players = snap.val() || {};
-                document.getElementById("playerCount").innerText = "Oyuncu: " + Object.keys(players).length;
-            });
-
-            requestAnimationFrame(gameLoop);
+            try {
+                const app = initializeApp(firebaseConfig);
+                const db = getDatabase(app);
+                startGame(db);
+            } catch (e) {
+                status.innerText = "Firebase Bağlantı Hatası!";
+                console.error(e);
+            }
         };
 
-        window.onkeydown = (e) => keys[e.code] = true;
-        window.onkeyup = (e) => keys[e.code] = false;
+        function startGame(db) {
+            document.getElementById("menu").style.display = "none";
+            const canvas = document.getElementById("gameCanvas");
+            canvas.style.display = "block";
+            const ctx = canvas.getContext("2d");
 
-        function updatePhysics() {
-            // Hareket
-            if (keys["ArrowRight"] || keys["KeyD"]) myData.vx = 4;
-            else if (keys["ArrowLeft"] || keys["KeyA"]) myData.vx = -4;
-            else myData.vx *= 0.8;
-
-            // Zıplama
-            if ((keys["ArrowUp"] || keys["KeyW"] || keys["Space"]) && myData.grounded) {
-                myData.vy = -12;
-                myData.grounded = false;
-            }
-
-            // Yerçekimi
-            myData.vy += gravity;
-            myData.x += myData.vx;
-            myData.y += myData.vy;
-
-            // Zemin Sınırı
-            if (myData.y > 410) {
-                myData.y = 410;
-                myData.vy = 0;
-                myData.grounded = true;
-            }
+            const myId = "p" + Math.floor(Math.random() * 1000);
+            const room = document.getElementById("rName").value || "genel";
+            const pName = document.getElementById("pName").value || "Oyuncu";
             
-            // Ekran Sınırları
-            if (myData.x < 0) myData.x = 0;
-            if (myData.x > canvas.width - 40) myData.x = canvas.width - 40;
+            let players = {};
+            let myPos = { x: 100, y: 300, color: "red", name: pName };
 
-            // Firebase'e sadece kendi verimizi gönderiyoruz
-            update(ref(db, `rooms/${myRoom}/players/${myId}`), {
-                x: myData.x, y: myData.y, name: myData.name, color: myData.color
+            const roomRef = ref(db, `rooms/${room}/players/${myId}`);
+            set(roomRef, myPos);
+            onDisconnect(roomRef).remove();
+
+            onValue(ref(db, `rooms/${room}/players`), (snap) => {
+                players = snap.val() || {};
             });
-        }
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Hareket
+            window.onkeydown = (e) => {
+                if(e.key === "ArrowRight") myPos.x += 10;
+                if(e.key === "ArrowLeft") myPos.x -= 10;
+                set(roomRef, myPos);
+            };
 
-            // Zemin
-            ctx.fillStyle = "#34495e";
-            ctx.fillRect(0, 450, canvas.width, 50);
-
-            // Oyuncular
-            Object.values(players).forEach(p => {
-                // Karakter Kutusu
-                ctx.fillStyle = p.color;
-                ctx.fillRect(p.x, p.y, 40, 40);
-                
-                // Detaylar (Gözler)
-                ctx.fillStyle = "white";
-                ctx.fillRect(p.x + 25, p.y + 10, 8, 8); // Pico bakışı
-                ctx.fillStyle = "black";
-                ctx.fillRect(p.x + 30, p.y + 12, 4, 4);
-
-                // İsim
-                ctx.fillStyle = "#2c3e50";
-                ctx.font = "bold 14px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText(p.name, p.x + 20, p.y - 10);
-            });
-        }
-
-        function gameLoop() {
-            updatePhysics();
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                Object.values(players).forEach(p => {
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(p.x, p.y, 40, 40);
+                    ctx.fillStyle = "black";
+                    ctx.fillText(p.name, p.x, p.y - 5);
+                });
+                requestAnimationFrame(draw);
+            }
             draw();
-            requestAnimationFrame(gameLoop);
         }
     </script>
 </body>
