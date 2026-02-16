@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chatt Web</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"></script>
+</head>
+<body style="font-family: Arial; background:#111; color:white; text-align:center;">
+
+<h2>🔥 Chatt Web</h2>
+
+<input id="username" placeholder="Kullanıcı Adı">
+<br><br>
+<input id="message" placeholder="Mesaj yaz...">
+<button onclick="sendMessage()">Gönder</button>
+
+<div id="chat" style="margin-top:20px;"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, push, onChildAdded } 
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
+    authDomain: "chatt-5c23d.firebaseapp.com",
+    databaseURL: "https://chatt-5c23d-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "chatt-5c23d",
+    storageBucket: "chatt-5c23d.firebasestorage.app",
+    messagingSenderId: "307426902187",
+    appId: "1:307426902187:web:6bb314fe10261a1733b7ee"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  window.sendMessage = function() {
+    const username = document.getElementById("username").value;
+    const message = document.getElementById("message").value;
+
+    if(username && message){
+      push(ref(db, "messages"), {
+        user: username,
+        text: message
+      });
+      document.getElementById("message").value = "";
+    }
+  }
+
+  onChildAdded(ref(db, "messages"), (data) => {
+    const msg = data.val();
+    document.getElementById("chat").innerHTML += 
+      "<p><b>" + msg.user + ":</b> " + msg.text + "</p>";
+  });
+</script>
+
+</body>
+</html>
