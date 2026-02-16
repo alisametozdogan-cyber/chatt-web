@@ -2,25 +2,31 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>Chatt Discord Klon</title>
+<title>Chatt Web - Discord Klon</title>
 <style>
-  body { margin:0; font-family:'Segoe UI', sans-serif; display:flex; height:100vh; background:#36393f; color:white; }
-  #sidebar { width:250px; background:#2f3136; display:flex; flex-direction:column; padding:15px; }
-  #logo { text-align:center; font-size:22px; font-weight:bold; margin-bottom:15px; color:#7289da; }
-  #users { flex:1; overflow-y:auto; margin-top:10px; }
-  .user { padding:8px 10px; border-radius:5px; margin:5px 0; background:#40444b; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
-  .user.admin { background:#ff4757; }
-  .user:hover { background:#5865f2; }
-  #main { flex:1; display:flex; flex-direction:column; }
-  #chat { flex:1; overflow-y:auto; padding:10px; }
-  .msg { background:#40444b; padding:8px 10px; border-radius:5px; margin:5px 0; display:flex; justify-content:space-between; align-items:center; }
-  .msg.admin { border:2px solid #ff4757; }
-  .msg button { background:#ff4d4d; border:none; padding:2px 6px; border-radius:5px; cursor:pointer; }
-  .msg button:hover { background:#ff1a1a; }
-  #input-container { display:flex; padding:10px; gap:5px; background:#2f3136; }
-  #input-container input { flex:1; padding:8px; border-radius:5px; border:none; }
-  #input-container button { padding:8px 12px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
-  #input-container button:hover { background:#5b6eae; }
+body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; background:#36393f; color:white; }
+#sidebar { width:250px; background:#2f3136; display:flex; flex-direction:column; padding:15px; }
+#logo { text-align:center; font-size:22px; font-weight:bold; margin-bottom:15px; color:#7289da; }
+#users { flex:1; overflow-y:auto; margin-top:10px; }
+.user { padding:8px 10px; border-radius:5px; margin:5px 0; background:#40444b; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+.user.admin { background:#ff4757; }
+.user:hover { background:#5865f2; }
+#main { flex:1; display:flex; flex-direction:column; position:relative; }
+#chat { flex:1; overflow-y:auto; padding:10px; }
+.msg { background:#40444b; padding:8px 10px; border-radius:5px; margin:5px 0; display:flex; justify-content:space-between; align-items:center; }
+.msg.admin { border:2px solid #ff4757; }
+.msg button { background:#ff4d4d; border:none; padding:2px 6px; border-radius:5px; cursor:pointer; }
+.msg button:hover { background:#ff1a1a; }
+#input-container { display:flex; padding:10px; gap:5px; background:#2f3136; }
+#input-container input { flex:1; padding:8px; border-radius:5px; border:none; }
+#input-container button { padding:8px 12px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
+#input-container button:hover { background:#5b6eae; }
+/* Modal login */
+#loginModal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; justify-content:center; align-items:center; z-index:999; }
+#loginModal .modal-content { background:#2f3136; padding:20px; border-radius:10px; display:flex; flex-direction:column; gap:10px; width:300px; }
+#loginModal input { padding:8px; border-radius:5px; border:none; width:100%; }
+#loginModal button { padding:8px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
+#loginModal button:hover { background:#5b6eae; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"></script>
@@ -35,9 +41,20 @@
 <div id="main">
   <div id="chat"></div>
   <div id="input-container">
-    <input id="message" placeholder="Mesaj yaz...">
-    <button id="sendBtn">Gönder</button>
-    <button id="voiceBtn">Sesli Sohbete Katıl</button>
+    <input id="message" placeholder="Mesaj yaz..." disabled>
+    <button id="sendBtn" disabled>Gönder</button>
+    <button id="voiceBtn" disabled>Sesli Sohbete Katıl</button>
+  </div>
+</div>
+
+<!-- Modal login -->
+<div id="loginModal">
+  <div class="modal-content">
+    <h3>Giriş / Kayıt</h3>
+    <input id="loginUsername" placeholder="Kullanıcı adı">
+    <input id="loginPassword" type="password" placeholder="Şifre">
+    <input id="loginNickname" placeholder="Nickname">
+    <button id="loginBtn">Giriş Yap / Kayıt Ol</button>
   </div>
 </div>
 
@@ -58,91 +75,92 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Admin ve kullanıcı
-const adminUser = "Aloak1";
-let username = prompt("Kullanıcı adınızı girin:");
-if(!username) username = "User" + Math.floor(Math.random()*10000);
-const isAdmin = username === adminUser;
+// Login / Kayıt
+let username, nickname, isAdmin=false;
+const loginModal = document.getElementById("loginModal");
+document.getElementById("loginBtn").onclick = ()=>{
+  username = document.getElementById("loginUsername").value.trim();
+  const password = document.getElementById("loginPassword").value.trim();
+  nickname = document.getElementById("loginNickname").value.trim();
+  if(!username || !password || !nickname) return alert("Tüm alanları doldurun!");
 
-// Kullanıcıyı ekle
-const usersRef = ref(db, "users/" + username);
-push(usersRef, {online:true, admin:isAdmin});
+  // Aloak1 admin kontrol
+  if(username==="Aloak1" && password!=="1234") return alert("Yanlış şifre!");
+  if(username==="Aloak1") isAdmin=true;
 
-// Örnek mesajlar
-const exampleMessages = [
-  {user:"User123", text:"Merhaba!"},
-  {user:"User456", text:"Selam, nasılsınız?"},
-  {user:adminUser, text:"Ben adminim, tüm mesajları silebilirim!"}
-];
-exampleMessages.forEach(msg => push(ref(db, "messages"), msg));
+  loginModal.style.display="none";
+  document.getElementById("message").disabled=false;
+  document.getElementById("sendBtn").disabled=false;
+  document.getElementById("voiceBtn").disabled=false;
+
+  // Kullanıcıyı Firebase ekle
+  const userRef = ref(db,"users/"+username);
+  push(userRef,{nickname, admin:isAdmin, online:true});
+}
 
 // Chat
 const chatDiv = document.getElementById("chat");
-
-window.sendMessage = function(){
-  const message = document.getElementById("message").value.trim();
-  if(!message) return alert("Mesaj boş olamaz!");
-  push(ref(db, "messages"), {user: username, text: message, uid: username});
-  document.getElementById("message").value = "";
+window.sendMessage = ()=>{
+  const messageInput = document.getElementById("message");
+  const text = messageInput.value.trim();
+  if(!text) return;
+  // Basit küfür filtresi
+  const banned = ["badword1","badword2"];
+  let filteredText = text;
+  banned.forEach(word=>{
+    const regex = new RegExp(word,"gi");
+    filteredText = filteredText.replace(regex,"***");
+  });
+  push(ref(db,"messages"), {user: username, nickname, text: filteredText, uid: username});
+  messageInput.value="";
 }
 
-window.deleteMessage = function(msgId, msgUser){
-  if(msgUser===username || isAdmin){
-    remove(ref(db, "messages/"+msgId));
-  } else {
-    alert("Sadece kendi mesajınızı silebilirsiniz!");
-  }
+window.deleteMessage = (msg)=>{
+  if(msg.uid===username || isAdmin) remove(ref(db,"messages/"+msg.id));
 }
 
 // Mesaj ekleme
-onChildAdded(ref(db,"messages"), (data)=>{
-  const msg = data.val();
-  const id = data.key;
-  const p = document.createElement("div");
-  p.className = "msg";
-  if(msg.user===adminUser) p.classList.add("admin");
-  p.id = "msg-"+id;
-  if(msg.user===username || isAdmin){
-    p.innerHTML = `<span><b>${msg.user}:</b> ${msg.text}</span> <button onclick="deleteMessage('${id}','${msg.user}')">Sil</button>`;
+onChildAdded(ref(db,"messages"), snapshot=>{
+  const msg = snapshot.val();
+  const id = snapshot.key;
+  const div = document.createElement("div");
+  div.className="msg";
+  if(msg.user==="Aloak1") div.classList.add("admin");
+  div.id="msg-"+id;
+  if(msg.uid===username || isAdmin){
+    div.innerHTML=`<span><b>${msg.nickname}:</b> ${msg.text}</span> <button onclick="deleteMessage({id:'${id}',uid:'${msg.uid}'})">Sil</button>`;
   } else {
-    p.innerHTML = `<span><b>${msg.user}:</b> ${msg.text}</span>`;
+    div.innerHTML=`<span><b>${msg.nickname}:</b> ${msg.text}</span>`;
   }
-  chatDiv.appendChild(p);
-  chatDiv.scrollTop = chatDiv.scrollHeight;
+  chatDiv.appendChild(div);
+  chatDiv.scrollTop=chatDiv.scrollHeight;
 });
 
 // Mesaj silme
-onChildRemoved(ref(db,"messages"), (data)=>{
-  const id = data.key;
-  const msgDiv = document.getElementById("msg-"+id);
-  if(msgDiv) msgDiv.remove();
+onChildRemoved(ref(db,"messages"), snapshot=>{
+  const div = document.getElementById("msg-"+snapshot.key);
+  if(div) div.remove();
 });
 
 // Kullanıcı listesi
 const usersDiv = document.getElementById("users");
-onValue(ref(db,"users"), (snapshot)=>{
-  usersDiv.innerHTML = "";
+onValue(ref(db,"users"), snapshot=>{
+  usersDiv.innerHTML="";
   snapshot.forEach(child=>{
     const uname = child.key;
     const data = child.val();
     const div = document.createElement("div");
-    div.className = "user";
+    div.className="user";
     if(data.admin) div.classList.add("admin");
-    div.innerText = uname;
+    div.innerText=data.nickname;
     usersDiv.appendChild(div);
   });
 });
 
-// Sesli sohbet demo
-document.getElementById("voiceBtn").onclick = () => {
-  alert("Sesli sohbet demo: Mikrofon açılır, ses akışı başlar (tek kanal).");
-}
-
 // Event listeners
 document.getElementById("sendBtn").addEventListener("click", sendMessage);
-document.getElementById("message").addEventListener("keypress",(e)=>{
-  if(e.key==="Enter") sendMessage();
-});
+document.getElementById("message").addEventListener("keypress", e=>{ if(e.key==="Enter") sendMessage(); });
+document.getElementById("voiceBtn").onclick=()=>{ alert("Sesli sohbet demo açıldı!"); }
 
 </script>
 
