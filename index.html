@@ -42,7 +42,7 @@ button { cursor:pointer; }
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, push, update, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
@@ -57,7 +57,7 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 let username="", nickname="", avatar="https://i.pravatar.cc/40";
-let roomId = "";
+let roomId="", host=false;
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const loginModal = document.getElementById("loginModal");
@@ -67,7 +67,27 @@ const leaderboardUl = document.getElementById("scores");
 
 let players = {};
 let scores = {};
-const keys={};
+let keys={};
+let levelMap = [];
+let levelReady = false;
+
+// Basit örnek level grid (0=boş,1=duvar,2=hedef)
+const levels = {
+  1:[
+    [0,0,0,0,0,0],
+    [0,1,1,1,1,0],
+    [0,0,2,0,0,0],
+    [0,1,1,1,1,0],
+    [0,0,0,0,0,0]
+  ],
+  2:[
+    [1,0,0,0,0,1],
+    [0,1,0,2,1,0],
+    [0,0,0,0,0,0],
+    [1,0,1,0,0,1],
+    [0,0,0,0,0,0]
+  ]
+};
 
 // Login
 document.getElementById("loginBtn").onclick = ()=>{
@@ -100,11 +120,13 @@ function listenRooms(){
 
 document.getElementById("createRoomBtn").onclick = ()=>{
   const newRoomId = "room"+Math.floor(Math.random()*10000);
-  const level = prompt("Level seç (1-5)","1");
+  const level = prompt("Level seç (1-2)","1");
+  host=true;
   set(ref(db,"game/rooms/"+newRoomId),{
     host: username,
     level: parseInt(level),
-    players:{}
+    players:{},
+    started:false
   });
   joinRoom(newRoomId);
 }
@@ -114,17 +136,43 @@ function joinRoom(rId){
   const playerRef = ref(db,"game/rooms/"+roomId+"/players/"+username);
   set(playerRef,{x:50,y:50,nickname,avatar});
   roomModal.style.display="none";
+
+  const roomRef = ref(db,"game/rooms/"+roomId);
+  // listen room data
+  onValue(roomRef,snap=>{
+    const data = snap.val();
+    if(!data) return; // oda silinmiş
+    players = data.players || {};
+    scores = data.scores || {};
+    if(data.started && !levelReady){
+      levelMap = levels[data.level];
+      levelReady = true;
+    }
+    drawGame();
+    updateLeaderboard();
+  });
+
+  if(host){
+    const startBtn = document.createElement("button");
+    startBtn.textContent="Level Başlat";
+    startBtn.onclick = ()=>{
+      set(ref(db,"game/rooms/"+roomId+"/started"),true);
+      levelMap = levels[parseInt(level)];
+      levelReady=true;
+      drawGame();
+    };
+    roomModal.appendChild(startBtn);
+  }
+
+  window.addEventListener("keydown",e=>{ keys[e.key]=true; });
+  window.addEventListener("keyup",e=>{ keys[e.key]=false; });
+
   gameLoop();
-  listenRoomPlayers();
-  listenRoomScores();
 }
 
 // Movement
-window.addEventListener("keydown",e=>{ keys[e.key]=true; });
-window.addEventListener("keyup",e=>{ keys[e.key]=false; });
-
 function movePlayer(){
-  if(!username || !roomId) return;
+  if(!username || !roomId || !levelReady) return;
   const p = players[username];
   if(!p) return;
   let speed=2;
@@ -132,32 +180,36 @@ function movePlayer(){
   if(keys["ArrowDown"]||keys["s"]) p.y+=speed;
   if(keys["ArrowLeft"]||keys["a"]) p.x-=speed;
   if(keys["ArrowRight"]||keys["d"]) p.x+=speed;
+
+  // sınır kontrol
   p.x=Math.max(0,Math.min(canvas.width-20,p.x));
   p.y=Math.max(0,Math.min(canvas.height-20,p.y));
+
   set(ref(db,"game/rooms/"+roomId+"/players/"+username),p);
-}
-
-// Listen players
-function listenRoomPlayers(){
-  const roomPlayersRef = ref(db,"game/rooms/"+roomId+"/players");
-  onValue(roomPlayersRef,snap=>{
-    players = snap.val()||{};
-    drawGame();
-  });
-}
-
-// Listen scores
-function listenRoomScores(){
-  const roomScoresRef = ref(db,"game/rooms/"+roomId+"/scores");
-  onValue(roomScoresRef,snap=>{
-    scores = snap.val()||{};
-    updateLeaderboard();
-  });
 }
 
 // Draw
 function drawGame(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // draw level
+  if(levelReady){
+    const cellW = canvas.width/levelMap[0].length;
+    const cellH = canvas.height/levelMap.length;
+    for(let y=0;y<levelMap.length;y++){
+      for(let x=0;x<levelMap[0].length;x++){
+        if(levelMap[y][x]===1){
+          ctx.fillStyle="#555"; // duvar
+          ctx.fillRect(x*cellW,y*cellH,cellW,cellH);
+        }else if(levelMap[y][x]===2){
+          ctx.fillStyle="#f1c40f"; // hedef
+          ctx.fillRect(x*cellW,y*cellH,cellW,cellH);
+        }
+      }
+    }
+  }
+
+  // draw players
   for(const id in players){
     const pl = players[id];
     ctx.fillStyle=(id===username)?"#7289da":"#43b581";
@@ -167,22 +219,13 @@ function drawGame(){
   }
 }
 
-// Score demo
-let score=0;
-function updateScore(){
-  if(!username || !roomId) return;
-  score+=1;
-  set(ref(db,"game/rooms/"+roomId+"/scores/"+username),{nickname,score});
-  updateLeaderboard();
-}
-
 // Leaderboard
 function updateLeaderboard(){
   leaderboardUl.innerHTML="";
-  const sorted = Object.entries(scores).sort((a,b)=>b[1].score - a[1].score);
-  sorted.forEach(([u,v])=>{
+  const sorted = Object.entries(players).sort((a,b)=>a[1].x-b[1].x); // demo sıralama
+  sorted.forEach(([id,p])=>{
     const li = document.createElement("li");
-    li.textContent=`${v.nickname}: ${v.score}`;
+    li.textContent=`${p.nickname}`;
     leaderboardUl.appendChild(li);
   });
 }
@@ -191,9 +234,15 @@ function updateLeaderboard(){
 function gameLoop(){
   movePlayer();
   drawGame();
-  updateScore();
   requestAnimationFrame(gameLoop);
 }
+
+// Çıkınca oyuncuyu temizle
+window.addEventListener("beforeunload",()=>{
+  if(roomId && username){
+    remove(ref(db,"game/rooms/"+roomId+"/players/"+username));
+  }
+});
 </script>
 </body>
 </html>
