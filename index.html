@@ -1,503 +1,170 @@
-class TinyTeamGame {
-    constructor() {
-        this.canvas = document.getElementById('gameCanvas');
-        this.ctx = this.canvas.getContext('2d');
-        this.currentScreen = 'menu';
-        this.roomCode = null;
-        this.playerId = this.generatePlayerId();
-        this.playerName = '';
-        this.players = {};
-        this.gameState = 'waiting';
-        this.currentLevel = 1;
-        this.levels = this.createLevels();
-        
-        this.initializeEventListeners();
-        this.initializeGame();
-    }
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pico Park Web - Online Multiplayer</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        #menu { background: #2c3e50; padding: 30px; border-radius: 15px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; width: 320px; }
+        h1 { color: #f1c40f; margin-bottom: 20px; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
+        input { padding: 12px; margin: 8px 0; border-radius: 8px; border: none; width: 90%; font-size: 16px; outline: none; }
+        button { padding: 12px; cursor: pointer; background: #27ae60; color: white; border: none; border-radius: 8px; width: 100%; font-weight: bold; font-size: 16px; transition: 0.3s; margin-top: 10px; }
+        button:hover { background: #2ecc71; transform: scale(1.02); }
+        canvas { background: #ecf0f1; border: 8px solid #34495e; border-radius: 10px; display: none; cursor: none; }
+        #ui { position: absolute; top: 20px; left: 20px; display: none; pointer-events: none; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        .controls-hint { position: absolute; bottom: 20px; color: #bdc3c7; font-size: 14px; }
+    </style>
+</head>
+<body>
 
-    generatePlayerId() {
-        return 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
+    <div id="menu">
+        <h1>PICO CLONE</h1>
+        <input type="text" id="pName" placeholder="Karakter Adı" maxlength="10">
+        <input type="text" id="rName" placeholder="Oda Şifresi / Adı">
+        <button id="joinBtn">OYUNA KATIL</button>
+    </div>
 
-    generateRoomCode() {
-        return Math.random().toString(36).substr(2, 6).toUpperCase();
-    }
+    <div id="ui">
+        <div id="roomInfo" style="font-weight: bold; font-size: 20px;">ODA: -</div>
+        <div id="playerCount">Oyuncu: 0</div>
+    </div>
 
-    initializeEventListeners() {
-        // Menü event listeners
-        document.getElementById('createRoomBtn').addEventListener('click', () => this.createRoom());
-        document.getElementById('joinRoomBtn').addEventListener('click', () => this.joinRoom());
-        document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
-        document.getElementById('leaveLobbyBtn').addEventListener('click', () => this.leaveLobby());
-        document.getElementById('resetLevelBtn').addEventListener('click', () => this.resetLevel());
-        document.getElementById('backToLobbyBtn').addEventListener('click', () => this.backToLobby());
+    <canvas id="gameCanvas" width="900" height="500"></canvas>
+    <div class="controls-hint">Yön Tuşları: Hareket | W / Boşluk: Zıpla</div>
 
-        // Klavye kontrolleri
-        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
-        document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, onDisconnect, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // Touch kontrolleri (mobil)
-        this.canvas.addEventListener('touchstart', (e) => this.handleTouch(e));
-    }
+        // --- FIREBASE AYARLARINI BURAYA YAPIŞTIR ---
+        const firebaseConfig = {
+            apiKey: "SENIN_API_KEY",
+            authDomain: "SENIN_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://SENIN_PROJECT_ID.firebaseio.com",
+            projectId: "SENIN_PROJECT_ID",
+            storageBucket: "SENIN_PROJECT_ID.appspot.com",
+            messagingSenderId: "...",
+            appId: "..."
+        };
 
-    async createRoom() {
-        const playerName = document.getElementById('playerName').value.trim();
-        if (!playerName) {
-            alert('Lütfen isminizi girin!');
-            return;
-        }
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
 
-        this.playerName = playerName;
-        this.roomCode = this.generateRoomCode();
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const menu = document.getElementById("menu");
+        const ui = document.getElementById("ui");
 
-        try {
-            await roomsRef.child(this.roomCode).set({
-                host: this.playerId,
-                gameState: 'waiting',
-                currentLevel: 1,
-                created: firebase.database.ServerValue.TIMESTAMP
+        let myId, myRoom, myData;
+        let players = {};
+        const gravity = 0.6;
+        const keys = {};
+
+        document.getElementById("joinBtn").onclick = () => {
+            const name = document.getElementById("pName").value || "Adsız";
+            myRoom = document.getElementById("rName").value || "lobby";
+            myId = "p_" + Math.random().toString(36).substr(2, 5);
+
+            myData = {
+                id: myId,
+                name: name,
+                x: 100 + Math.random() * 200,
+                y: 300,
+                vx: 0, vy: 0,
+                color: `hsl(${Math.random() * 360}, 75%, 60%)`,
+                grounded: false
+            };
+
+            // Firebase Bağlantısını Kur
+            const playerRef = ref(db, `rooms/${myRoom}/players/${myId}`);
+            set(playerRef, myData);
+            onDisconnect(playerRef).remove();
+
+            // Ekranı Değiştir
+            menu.style.display = "none";
+            canvas.style.display = "block";
+            ui.style.display = "block";
+            document.getElementById("roomInfo").innerText = "ODA: " + myRoom.toUpperCase();
+
+            // Verileri Dinle
+            onValue(ref(db, `rooms/${myRoom}/players`), (snap) => {
+                players = snap.val() || {};
+                document.getElementById("playerCount").innerText = "Oyuncu: " + Object.keys(players).length;
             });
 
-            await this.joinRoomAsPlayer();
-            this.showLobby();
-        } catch (error) {
-            console.error('Oda oluşturulamadı:', error);
-            alert('Oda oluşturulamadı!');
-        }
-    }
+            requestAnimationFrame(gameLoop);
+        };
 
-    async joinRoom() {
-        const playerName = document.getElementById('playerName').value.trim();
-        const roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-        
-        if (!playerName || !roomCode) {
-            alert('İsim ve oda kodunu girin!');
-            return;
-        }
+        window.onkeydown = (e) => keys[e.code] = true;
+        window.onkeyup = (e) => keys[e.code] = false;
 
-        try {
-            const roomSnapshot = await roomsRef.child(roomCode).once('value');
-            if (!roomSnapshot.exists()) {
-                alert('Oda bulunamadı!');
-                return;
+        function updatePhysics() {
+            // Hareket
+            if (keys["ArrowRight"] || keys["KeyD"]) myData.vx = 4;
+            else if (keys["ArrowLeft"] || keys["KeyA"]) myData.vx = -4;
+            else myData.vx *= 0.8;
+
+            // Zıplama
+            if ((keys["ArrowUp"] || keys["KeyW"] || keys["Space"]) && myData.grounded) {
+                myData.vy = -12;
+                myData.grounded = false;
             }
 
-            this.playerName = playerName;
-            this.roomCode = roomCode;
-            await this.joinRoomAsPlayer();
-            this.showLobby();
-        } catch (error) {
-            console.error('Odaya katılamadı:', error);
-            alert('Odaya katılamadı!');
-        }
-    }
+            // Yerçekimi
+            myData.vy += gravity;
+            myData.x += myData.vx;
+            myData.y += myData.vy;
 
-    async joinRoomAsPlayer() {
-        const playerColor = this.getRandomColor();
-        
-        await playersRef.child(this.roomCode).child(this.playerId).set({
-            name: this.playerName,
-            color: playerColor,
-            x: 100,
-            y: 400,
-            vx: 0,
-            vy: 0,
-            grounded: false,
-            alive: true,
-            joined: firebase.database.ServerValue.TIMESTAMP
-        });
-
-        // Oyuncu listesini dinle
-        playersRef.child(this.roomCode).on('value', (snapshot) => {
-            this.players = snapshot.val() || {};
-            this.updatePlayersDisplay();
-        });
-
-        // Oda durumunu dinle
-        roomsRef.child(this.roomCode).on('value', (snapshot) => {
-            const roomData = snapshot.val();
-            if (roomData) {
-                if (roomData.gameState === 'playing' && this.currentScreen === 'lobby') {
-                    this.showGame();
-                    this.startGameLoop();
-                }
+            // Zemin Sınırı
+            if (myData.y > 410) {
+                myData.y = 410;
+                myData.vy = 0;
+                myData.grounded = true;
             }
-        });
-    }
+            
+            // Ekran Sınırları
+            if (myData.x < 0) myData.x = 0;
+            if (myData.x > canvas.width - 40) myData.x = canvas.width - 40;
 
-    showLobby() {
-        this.currentScreen = 'lobby';
-        document.querySelector('.screen.active').classList.remove('active');
-        document.getElementById('lobbyScreen').classList.add('active');
-        document.getElementById('currentRoomCode').textContent = this.roomCode;
-    }
-
-    showGame() {
-        this.currentScreen = 'game';
-        document.querySelector('.screen.active').classList.remove('active');
-        document.getElementById('gameScreen').classList.add('active');
-        this.initializeGame();
-    }
-
-    updatePlayersDisplay() {
-        const container = document.getElementById('playersContainer');
-        container.innerHTML = '';
-
-        Object.entries(this.players).forEach(([id, player]) => {
-            const playerDiv = document.createElement('div');
-            playerDiv.className = 'player-item';
-            playerDiv.innerHTML = `
-                <span class="player-colors" style="background-color: ${player.color}"></span>
-                ${player.name}
-            `;
-            container.appendChild(playerDiv);
-        });
-
-        document.getElementById('aliveCount').textContent = Object.keys(this.players).length;
-    }
-
-    async startGame() {
-        try {
-            await roomsRef.child(this.roomCode).update({
-                gameState: 'playing'
+            // Firebase'e sadece kendi verimizi gönderiyoruz
+            update(ref(db, `rooms/${myRoom}/players/${myId}`), {
+                x: myData.x, y: myData.y, name: myData.name, color: myData.color
             });
-        } catch (error) {
-            console.error('Oyun başlatılamadı:', error);
-        }
-    }
-
-    createLevels() {
-        return [
-            {
-                // Seviye 1 - Basit platform
-                platforms: [
-                    { x: 0, y: 580, width: 800, height: 20 }, // Zemin
-                    { x: 200, y: 450, width: 200, height: 20 },
-                    { x: 500, y: 320, width: 200, height: 20 }
-                ],
-                goal: { x: 650, y: 250, width: 50, height: 50 },
-                spikes: [],
-                switches: []
-            },
-            {
-                // Seviye 2 - İşbirliği gereken platform
-                platforms: [
-                    { x: 0, y: 580, width: 800, height: 20 },
-                    { x: 100, y: 450, width: 100, height: 20 },
-                    { x: 300, y: 350, width: 200, height: 20 },
-                    { x: 600, y: 250, width: 100, height: 20 }
-                ],
-                goal: { x: 625, y: 180, width: 50, height: 50 },
-                spikes: [
-                    { x: 250, y: 560, width: 100, height: 20 }
-                ],
-                switches: [
-                    { x: 150, y: 430, width: 30, height: 20, required: 2 }
-                ]
-            }
-        ];
-    }
-
-    initializeGame() {
-        this.keys = {};
-        
-        // Oyuncuyu spawn noktasına yerleştir
-        if (this.players[this.playerId]) {
-            this.players[this.playerId].x = 50;
-            this.players[this.playerId].y = 500;
-            this.players[this.playerId].vx = 0;
-            this.players[this.playerId].vy = 0;
-            this.players[this.playerId].alive = true;
-        }
-    }
-
-    startGameLoop() {
-        this.gameLoop = setInterval(() => {
-            this.update();
-            this.render();
-        }, 1000 / 60); // 60 FPS
-    }
-
-    update() {
-        if (this.currentScreen !== 'game') return;
-
-        const player = this.players[this.playerId];
-        if (!player || !player.alive) return;
-
-        // Fizik güncelleme
-        this.updatePhysics(player);
-        
-        // Çarpışma kontrolü
-        this.checkCollisions(player);
-        
-        // Oyuncu pozisyonunu Firebase'e gönder
-        this.updatePlayerPosition();
-    }
-
-    updatePhysics(player) {
-        // Yerçekimi
-        if (!player.grounded) {
-            player.vy += 0.8;
         }
 
-        // Hareket kontrolleri
-        if (this.keys['ArrowLeft'] || this.keys['a'] || this.keys['A']) {
-            player.vx = -5;
-        } else if (this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) {
-            player.vx = 5;
-        } else {
-            player.vx *= 0.8; // Sürtünme
-        }
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Zıplama
-        if ((this.keys['ArrowUp'] || this.keys['w'] || this.keys['W'] || this.keys[' ']) && player.grounded) {
-            player.vy = -15;
-            player.grounded = false;
-        }
+            // Zemin
+            ctx.fillStyle = "#34495e";
+            ctx.fillRect(0, 450, canvas.width, 50);
 
-        // Pozisyon güncelleme
-        player.x += player.vx;
-        player.y += player.vy;
-
-        // Ekran sınırları
-        if (player.x < 0) player.x = 0;
-        if (player.x > this.canvas.width - 30) player.x = this.canvas.width - 30;
-        if (player.y > this.canvas.height) {
-            this.respawnPlayer();
-        }
-    }
-
-    checkCollisions(player) {
-        const level = this.levels[this.currentLevel - 1];
-        player.grounded = false;
-
-        // Platform çarpışmaları
-        level.platforms.forEach(platform => {
-            if (this.checkRectCollision(player, platform)) {
-                // Üstten çarpışma (platform üzerinde durma)
-                if (player.vy > 0 && player.y < platform.y) {
-                    player.y = platform.y - 30;
-                    player.vy = 0;
-                    player.grounded = true;
-                }
-                // Alttan çarpışma
-                else if (player.vy < 0 && player.y > platform.y) {
-                    player.y = platform.y + platform.height;
-                    player.vy = 0;
-                }
-                // Yanlardan çarpışma
-                else {
-                    if (player.vx > 0) {
-                        player.x = platform.x - 30;
-                    } else {
-                        player.x = platform.x + platform.width;
-                    }
-                    player.vx = 0;
-                }
-            }
-        });
-
-        // Diken çarpışmaları
-        level.spikes.forEach(spike => {
-            if (this.checkRectCollision(player, spike)) {
-                this.killPlayer();
-            }
-        });
-
-        // Hedef çarpışması
-        if (this.checkRectCollision(player, level.goal)) {
-            this.completeLevel();
-        }
-    }
-
-    checkRectCollision(rect1, rect2) {
-        return rect1.x < rect2.x + rect2.width &&
-               rect1.x + 30 > rect2.x &&
-               rect1.y < rect2.y + rect2.height &&
-               rect1.y + 30 > rect2.y;
-    }
-
-    render() {
-        if (this.currentScreen !== 'game') return;
-
-        // Ekranı temizle
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-        const level = this.levels[this.currentLevel - 1];
-
-        // Platformları çiz
-        this.ctx.fillStyle = '#8B4513';
-        level.platforms.forEach(platform => {
-            this.ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-        });
-
-        // Dikenleri çiz
-        this.ctx.fillStyle = '#FF4500';
-        level.spikes.forEach(spike => {
-            this.ctx.fillRect(spike.x, spike.y, spike.width, spike.height);
-        });
-
-        // Hedefi çiz
-        this.ctx.fillStyle = '#FFD700';
-        this.ctx.fillRect(level.goal.x, level.goal.y, level.goal.width, level.goal.height);
-        
-        // Hedef üzerinde star sembolü
-        this.ctx.fillStyle = '#FF6347';
-        this.ctx.font = '30px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('★', level.goal.x + 25, level.goal.y + 35);
-
-        // Oyuncuları çiz
-        Object.entries(this.players).forEach(([id, player]) => {
-            if (player.alive) {
-                this.ctx.fillStyle = player.color;
-                this.ctx.fillRect(player.x, player.y, 30, 30);
+            // Oyuncular
+            Object.values(players).forEach(p => {
+                // Karakter Kutusu
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 40, 40);
                 
-                // Oyuncu ismi
-                this.ctx.fillStyle = '#000';
-                this.ctx.font = '12px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText(player.name, player.x + 15, player.y - 5);
-            }
-        });
-    }
+                // Detaylar (Gözler)
+                ctx.fillStyle = "white";
+                ctx.fillRect(p.x + 25, p.y + 10, 8, 8); // Pico bakışı
+                ctx.fillStyle = "black";
+                ctx.fillRect(p.x + 30, p.y + 12, 4, 4);
 
-    async updatePlayerPosition() {
-        const player = this.players[this.playerId];
-        if (player) {
-            try {
-                await playersRef.child(this.roomCode).child(this.playerId).update({
-                    x: player.x,
-                    y: player.y,
-                    vx: player.vx,
-                    vy: player.vy,
-                    grounded: player.grounded,
-                    alive: player.alive
-                });
-            } catch (error) {
-                console.error('Pozisyon güncellenemedi:', error);
-            }
-        }
-    }
-
-    handleKeyDown(e) {
-        this.keys[e.code] = true;
-        this.keys[e.key] = true;
-        e.preventDefault();
-    }
-
-    handleKeyUp(e) {
-        this.keys[e.code] = false;
-        this.keys[e.key] = false;
-        e.preventDefault();
-    }
-
-    handleTouch(e) {
-        e.preventDefault();
-        const rect = this.canvas.getBoundingClientRect();
-        const touchX = e.touches[0].clientX - rect.left;
-        const touchY = e.touches[0].clientY - rect.top;
-
-        // Basit touch kontrolleri
-        if (touchX < this.canvas.width / 3) {
-            this.keys['ArrowLeft'] = true;
-            setTimeout(() => this.keys['ArrowLeft'] = false, 100);
-        } else if (touchX > this.canvas.width * 2 / 3) {
-            this.keys['ArrowRight'] = true;
-            setTimeout(() => this.keys['ArrowRight'] = false, 100);
-        } else {
-            this.keys[' '] = true;
-            setTimeout(() => this.keys[' '] = false, 100);
-        }
-    }
-
-    respawnPlayer() {
-        const player = this.players[this.playerId];
-        if (player) {
-            player.x = 50;
-            player.y = 500;
-            player.vx = 0;
-            player.vy = 0;
-            player.alive = true;
-        }
-    }
-
-    killPlayer() {
-        const player = this.players[this.playerId];
-        if (player) {
-            player.alive = false;
-            setTimeout(() => this.respawnPlayer(), 1000);
-        }
-    }
-
-    async completeLevel() {
-        alert('Seviye tamamlandı! 🎉');
-        
-        if (this.currentLevel < this.levels.length) {
-            this.currentLevel++;
-            document.getElementById('currentLevel').textContent = this.currentLevel;
-            this.respawnPlayer();
-        } else {
-            alert('Tüm seviyeler tamamlandı! 🏆');
-            this.backToLobby();
-        }
-    }
-
-    async resetLevel() {
-        Object.keys(this.players).forEach(playerId => {
-            if (this.players[playerId]) {
-                this.players[playerId].x = 50;
-                this.players[playerId].y = 500;
-                this.players[playerId].vx = 0;
-                this.players[playerId].vy = 0;
-                this.players[playerId].alive = true;
-            }
-        });
-    }
-
-    async backToLobby() {
-        if (this.gameLoop) {
-            clearInterval(this.gameLoop);
-        }
-        
-        try {
-            await roomsRef.child(this.roomCode).update({
-                gameState: 'waiting'
+                // İsim
+                ctx.fillStyle = "#2c3e50";
+                ctx.font = "bold 14px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(p.name, p.x + 20, p.y - 10);
             });
-        } catch (error) {
-            console.error('Lobby\'e dönülemedi:', error);
         }
-        
-        this.showLobby();
-    }
 
-    async leaveLobby() {
-        try {
-            await playersRef.child(this.roomCode).child(this.playerId).remove();
-        } catch (error) {
-            console.error('Odadan çıkılamadı:', error);
+        function gameLoop() {
+            updatePhysics();
+            draw();
+            requestAnimationFrame(gameLoop);
         }
-        
-        // Ana menüye dön
-        this.currentScreen = 'menu';
-        document.querySelector('.screen.active').classList.remove('active');
-        document.getElementById('menuScreen').classList.add('active');
-        
-        // Temizlik
-        this.roomCode = null;
-        this.players = {};
-        if (this.gameLoop) {
-            clearInterval(this.gameLoop);
-        }
-    }
-
-    getRandomColor() {
-        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F'];
-        return colors[Math.floor(Math.random() * colors.length)];
-    }
-}
-
-// Oyunu başlat
-document.addEventListener('DOMContentLoaded', () => {
-    new TinyTeamGame();
-});
+    </script>
+</body>
+</html>
