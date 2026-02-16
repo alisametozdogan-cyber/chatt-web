@@ -2,247 +2,66 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>Mini Pico Park Multiplayer</title>
+<title>Pico Park Clone</title>
 <style>
-body { margin:0; font-family:sans-serif; background:#222; color:white; display:flex; flex-direction:column; align-items:center; }
-canvas { background:#333; margin-top:10px; border:2px solid #555; }
-#loginModal, #roomModal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:999; }
-.modal-content { background:#444; padding:20px; border-radius:10px; display:flex; flex-direction:column; gap:10px; }
-button { cursor:pointer; }
-#leaderboard { margin-top:10px; width:400px; background:#2f2f2f; padding:10px; border-radius:8px; }
-#roomsList { margin-top:10px; background:#2f2f2f; padding:10px; border-radius:8px; width:300px; }
-.roomItem { padding:5px; background:#555; margin:5px 0; border-radius:5px; cursor:pointer; }
-.roomItem:hover { background:#7289da; }
+  body { display: flex; justify-content: center; align-items: center; height: 100vh; background: #87ceeb; margin:0; }
+  #game { position: relative; width: 600px; height: 400px; background: #8B4513; border: 5px solid #000; }
+  .player { width: 30px; height: 30px; position: absolute; border-radius: 5px; }
+  #player1 { background: red; top: 50px; left: 50px; }
+  #player2 { background: blue; top: 50px; left: 100px; }
+  .goal { width: 30px; height: 30px; position: absolute; background: yellow; top: 300px; left: 500px; border-radius: 5px; }
 </style>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"></script>
 </head>
 <body>
 
-<div id="loginModal">
-  <div class="modal-content">
-    <h3>Giriş / Kayıt</h3>
-    <input id="loginUsername" placeholder="Kullanıcı adı">
-    <input id="loginNickname" placeholder="Nickname">
-    <input id="loginAvatar" placeholder="Avatar URL (opsiyonel)">
-    <button id="loginBtn">Giriş Yap</button>
-  </div>
+<div id="game">
+  <div id="player1" class="player"></div>
+  <div id="player2" class="player"></div>
+  <div class="goal"></div>
 </div>
 
-<div id="roomModal" style="display:none;">
-  <div class="modal-content">
-    <h3>Oda Kur / Odaya Katıl</h3>
-    <button id="createRoomBtn">Oda Kur</button>
-    <div id="roomsList"></div>
-  </div>
-</div>
+<script>
+const p1 = document.getElementById("player1");
+const p2 = document.getElementById("player2");
+const goal = document.querySelector(".goal");
+const game = document.getElementById("game");
 
-<canvas id="gameCanvas" width="600" height="400"></canvas>
-<div id="leaderboard"><h4>Leaderboard</h4><ul id="scores"></ul></div>
+let p1Pos = {x:50, y:50};
+let p2Pos = {x:100, y:50};
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
-  authDomain: "chatt-5c23d.firebaseapp.com",
-  databaseURL: "https://chatt-5c23d-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "chatt-5c23d",
-  storageBucket: "chatt-5c23d.appspot.com",
-  messagingSenderId: "307426902187",
-  appId: "1:307426902187:web:6bb314fe10261a1733b7ee"
-};
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-
-let username="", nickname="", avatar="https://i.pravatar.cc/40";
-let roomId="", host=false;
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-const loginModal = document.getElementById("loginModal");
-const roomModal = document.getElementById("roomModal");
-const roomsListDiv = document.getElementById("roomsList");
-const leaderboardUl = document.getElementById("scores");
-
-let players = {};
-let scores = {};
-let keys={};
-let levelMap = [];
-let levelReady = false;
-
-// Basit örnek level grid (0=boş,1=duvar,2=hedef)
-const levels = {
-  1:[
-    [0,0,0,0,0,0],
-    [0,1,1,1,1,0],
-    [0,0,2,0,0,0],
-    [0,1,1,1,1,0],
-    [0,0,0,0,0,0]
-  ],
-  2:[
-    [1,0,0,0,0,1],
-    [0,1,0,2,1,0],
-    [0,0,0,0,0,0],
-    [1,0,1,0,0,1],
-    [0,0,0,0,0,0]
-  ]
-};
-
-// Login
-document.getElementById("loginBtn").onclick = ()=>{
-  username = document.getElementById("loginUsername").value.trim();
-  nickname = document.getElementById("loginNickname").value.trim();
-  avatar = document.getElementById("loginAvatar").value.trim() || avatar;
-  if(!username || !nickname) return alert("Zorunlu alanlar dolu değil!");
-
-  loginModal.style.display="none";
-  roomModal.style.display="flex";
-
-  listenRooms();
+function movePlayer(player, pos) {
+  player.style.left = pos.x + "px";
+  player.style.top = pos.y + "px";
 }
 
-// Rooms
-function listenRooms(){
-  const roomsRef = ref(db,"game/rooms");
-  onValue(roomsRef,snap=>{
-    roomsListDiv.innerHTML="";
-    const data = snap.val()||{};
-    for(const rId in data){
-      const div = document.createElement("div");
-      div.className="roomItem";
-      div.textContent=`${rId} | Level ${data[rId].level || 1}`;
-      div.onclick=()=>joinRoom(rId);
-      roomsListDiv.appendChild(div);
-    }
-  });
-}
+document.addEventListener("keydown", (e) => {
+  // Player 1 - WASD
+  if(e.key === "w") p1Pos.y -= 10;
+  if(e.key === "s") p1Pos.y += 10;
+  if(e.key === "a") p1Pos.x -= 10;
+  if(e.key === "d") p1Pos.x += 10;
+  // Player 2 - Arrow keys
+  if(e.key === "ArrowUp") p2Pos.y -= 10;
+  if(e.key === "ArrowDown") p2Pos.y += 10;
+  if(e.key === "ArrowLeft") p2Pos.x -= 10;
+  if(e.key === "ArrowRight") p2Pos.x += 10;
 
-document.getElementById("createRoomBtn").onclick = ()=>{
-  const newRoomId = "room"+Math.floor(Math.random()*10000);
-  const level = prompt("Level seç (1-2)","1");
-  host=true;
-  set(ref(db,"game/rooms/"+newRoomId),{
-    host: username,
-    level: parseInt(level),
-    players:{},
-    started:false
-  });
-  joinRoom(newRoomId);
-}
+  movePlayer(p1, p1Pos);
+  movePlayer(p2, p2Pos);
 
-function joinRoom(rId){
-  roomId=rId;
-  const playerRef = ref(db,"game/rooms/"+roomId+"/players/"+username);
-  set(playerRef,{x:50,y:50,nickname,avatar});
-  roomModal.style.display="none";
-
-  const roomRef = ref(db,"game/rooms/"+roomId);
-  // listen room data
-  onValue(roomRef,snap=>{
-    const data = snap.val();
-    if(!data) return; // oda silinmiş
-    players = data.players || {};
-    scores = data.scores || {};
-    if(data.started && !levelReady){
-      levelMap = levels[data.level];
-      levelReady = true;
-    }
-    drawGame();
-    updateLeaderboard();
-  });
-
-  if(host){
-    const startBtn = document.createElement("button");
-    startBtn.textContent="Level Başlat";
-    startBtn.onclick = ()=>{
-      set(ref(db,"game/rooms/"+roomId+"/started"),true);
-      levelMap = levels[parseInt(level)];
-      levelReady=true;
-      drawGame();
-    };
-    roomModal.appendChild(startBtn);
-  }
-
-  window.addEventListener("keydown",e=>{ keys[e.key]=true; });
-  window.addEventListener("keyup",e=>{ keys[e.key]=false; });
-
-  gameLoop();
-}
-
-// Movement
-function movePlayer(){
-  if(!username || !roomId || !levelReady) return;
-  const p = players[username];
-  if(!p) return;
-  let speed=2;
-  if(keys["ArrowUp"]||keys["w"]) p.y-=speed;
-  if(keys["ArrowDown"]||keys["s"]) p.y+=speed;
-  if(keys["ArrowLeft"]||keys["a"]) p.x-=speed;
-  if(keys["ArrowRight"]||keys["d"]) p.x+=speed;
-
-  // sınır kontrol
-  p.x=Math.max(0,Math.min(canvas.width-20,p.x));
-  p.y=Math.max(0,Math.min(canvas.height-20,p.y));
-
-  set(ref(db,"game/rooms/"+roomId+"/players/"+username),p);
-}
-
-// Draw
-function drawGame(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  // draw level
-  if(levelReady){
-    const cellW = canvas.width/levelMap[0].length;
-    const cellH = canvas.height/levelMap.length;
-    for(let y=0;y<levelMap.length;y++){
-      for(let x=0;x<levelMap[0].length;x++){
-        if(levelMap[y][x]===1){
-          ctx.fillStyle="#555"; // duvar
-          ctx.fillRect(x*cellW,y*cellH,cellW,cellH);
-        }else if(levelMap[y][x]===2){
-          ctx.fillStyle="#f1c40f"; // hedef
-          ctx.fillRect(x*cellW,y*cellH,cellW,cellH);
-        }
-      }
-    }
-  }
-
-  // draw players
-  for(const id in players){
-    const pl = players[id];
-    ctx.fillStyle=(id===username)?"#7289da":"#43b581";
-    ctx.fillRect(pl.x,pl.y,20,20);
-    ctx.fillStyle="white";
-    ctx.fillText(pl.nickname,pl.x,pl.y-5);
-  }
-}
-
-// Leaderboard
-function updateLeaderboard(){
-  leaderboardUl.innerHTML="";
-  const sorted = Object.entries(players).sort((a,b)=>a[1].x-b[1].x); // demo sıralama
-  sorted.forEach(([id,p])=>{
-    const li = document.createElement("li");
-    li.textContent=`${p.nickname}`;
-    leaderboardUl.appendChild(li);
-  });
-}
-
-// Game loop
-function gameLoop(){
-  movePlayer();
-  drawGame();
-  requestAnimationFrame(gameLoop);
-}
-
-// Çıkınca oyuncuyu temizle
-window.addEventListener("beforeunload",()=>{
-  if(roomId && username){
-    remove(ref(db,"game/rooms/"+roomId+"/players/"+username));
+  // Check goal
+  if(Math.abs(p1Pos.x - parseInt(goal.style.left)) < 30 &&
+     Math.abs(p1Pos.y - parseInt(goal.style.top)) < 30 &&
+     Math.abs(p2Pos.x - parseInt(goal.style.left)) < 30 &&
+     Math.abs(p2Pos.y - parseInt(goal.style.top)) < 30){
+    alert("Tebrikler! İkiniz de hedefe ulaştınız!");
+    p1Pos = {x:50,y:50};
+    p2Pos = {x:100,y:50};
+    movePlayer(p1, p1Pos);
+    movePlayer(p2, p2Pos);
   }
 });
 </script>
+
 </body>
 </html>
