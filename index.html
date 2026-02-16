@@ -20,6 +20,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, push, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
+  // Firebase ayarları
   const firebaseConfig = {
     apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
     authDomain: "chatt-5c23d.firebaseapp.com",
@@ -35,8 +36,8 @@
 
   // Mesaj gönderme
   window.sendMessage = function() {
-    const username = document.getElementById("username").value;
-    const message = document.getElementById("message").value;
+    const username = document.getElementById("username").value.trim();
+    const message = document.getElementById("message").value.trim();
     if(username && message){
       push(ref(db, "messages"), { user: username, text: message });
       document.getElementById("message").value = "";
@@ -44,7 +45,7 @@
   }
 
   // Mesaj silme
-  function deleteMessage(mesajId){
+  window.deleteMessage = function(mesajId){
     remove(ref(db, "messages/" + mesajId))
       .then(() => console.log("Mesaj silindi"))
       .catch(err => console.error("Hata: ", err));
@@ -55,12 +56,13 @@
     const msg = data.val();
     const id = data.key;
     const chatDiv = document.getElementById("chat");
+
     const p = document.createElement("p");
     p.innerHTML = `<b>${msg.user}:</b> ${msg.text} <button onclick="deleteMessage('${id}')">Sil</button>`;
     chatDiv.appendChild(p);
   });
-
 </script>
 
 </body>
 </html>
+
