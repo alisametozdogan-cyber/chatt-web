@@ -3,41 +3,54 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Pico Park Benzeri Mini Oyun</title>
+  <title>Pico Park Mini - Oda ile</title>
   <style>
     body { margin:0; background:#111; font-family:Arial; color:#eee; }
-    #game-container { position:relative; margin:20px auto; }
+    #game-container { position:relative; margin:20px auto; display:none; }
     #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; }
-    #join { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; padding:30px; border-radius:12px; text-align:center; }
+    #join { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; padding:30px; border-radius:12px; text-align:center; width:350px; }
+    #share-link { margin:15px 0; padding:10px; background:#333; word-break:break-all; }
   </style>
 
-  <!-- Phaser 3 -->
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-  <!-- PeerJS (P2P multiplayer) -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 
 <div id="join">
-  <h2>Pico Park Mini</h2>
-  <p>ID'nizi arkadaşınıza verin veya arkadaşınızın ID'sini girin</p>
-  <input id="myPeerId" readonly style="width:220px; padding:8px;" /><br><br>
-  <input id="friendId" placeholder="Arkadaş ID'si" style="width:220px; padding:8px;" /><br><br>
-  <button onclick="startGame()" style="padding:12px 30px; font-size:18px;">Oyuna Başla</button>
+  <h2>Pico Park Mini - Oda Sistemi</h2>
+  <p>Oda ID'si otomatik oluşuyor veya linktekiyle aynı odaya giriyorsun.</p>
+  <div id="share-link">Oda linki yükleniyor...</div>
+  <button onclick="startGame()" style="padding:12px 30px; font-size:18px;">Oyuna Gir</button>
 </div>
 
 <div id="game-container"></div>
 
-<div id="ui">Oyuncular: <span id="playerCount">1</span></div>
+<div id="ui">Oyuncular: <span id="playerCount">1</span> | Oda: <span id="roomDisplay"></span></div>
 
 <script>
-// ============== OYUN KODU ==============
+// ============== ODA SİSTEMİ ==============
+const urlParams = new URLSearchParams(window.location.search);
+let roomId = urlParams.get('room');
+
+if (!roomId) {
+  // Yeni oda oluştur (random 8 karakter)
+  roomId = Math.random().toString(36).substring(2, 10);
+  history.replaceState(null, '', `?room=${roomId}`);
+}
+
+document.getElementById('share-link').innerText = 
+  `Arkadaşlarına bu linki at:\n${window.location.origin}${window.location.pathname}?room=${roomId}`;
+
+document.getElementById('roomDisplay').innerText = roomId;
+
+// ============== OYUN DEĞİŞKENLERİ ==============
 let peer;
 let connections = [];
 let localPlayer;
-let players = {};        // peerId → {sprite, x, y, ...}
-let keys = {};           // tuşlar
+let players = {};
 let myId;
+let game;
 
 const config = {
   type: Phaser.AUTO,
@@ -51,80 +64,97 @@ const config = {
   scene: { preload, create, update }
 };
 
-let game;
 let music, jumpSound;
 
+// ============== BAŞLAT ==============
 function startGame() {
-  const friendId = document.getElementById('friendId').value.trim();
   document.getElementById('join').style.display = 'none';
   document.getElementById('game-container').style.display = 'block';
 
-  peer = new Peer();   // kendi ID'nizi otomatik alır
+  peer = new Peer(); // otomatik ID
 
   peer.on('open', (id) => {
     myId = id;
-    document.getElementById('myPeerId').value = id;
-    console.log("Benim ID:", id);
-
-    if (friendId) {
-      connectToPeer(friendId);
-    }
+    console.log("Benim Peer ID:", id, "Oda:", roomId);
+    joinRoom();
   });
 
   peer.on('connection', (conn) => {
+    if (conn.metadata !== roomId) return; // sadece aynı oda
     handleConnection(conn);
   });
 
   game = new Phaser.Game(config);
 }
 
-function connectToPeer(targetId) {
-  const conn = peer.connect(targetId);
-  handleConnection(conn);
+function joinRoom() {
+  // Her 2 saniyede bir "ben buradayım" sinyali gönder (broadcast için basit hack)
+  setInterval(() => {
+    if (!myId) return;
+    // Mevcut bağlantılara bildir
+    connections.forEach(c => {
+      if (c.open) c.send({ type: 'heartbeat', from: myId, room: roomId });
+    });
+
+    // Yeni bağlantı kurmak için... (basitçe herkese connect dene - production'da list lazım)
+    // Şimdilik manuel biliniyor varsayalım, yoksa basitçe host herkese connect dener
+  }, 2000);
 }
 
+// Bağlantı yönetimi
 function handleConnection(conn) {
+  if (connections.some(c => c.peer === conn.peer)) return;
+
   conn.on('open', () => {
     connections.push(conn);
     console.log("Bağlandı:", conn.peer);
     updatePlayerCount();
 
-    // Yeni oyuncuya mevcut oyuncuları gönder
-    if (localPlayer) {
-      conn.send({
-        type: 'existingPlayers',
-        players: Object.fromEntries(
-          Object.entries(players).map(([pid, p]) => [pid, {x:p.x, y:p.y, color:p.tint}])
-        )
+    // Yeni oyuncuya kendini tanıt
+    conn.send({ type: 'join', id: myId, room: roomId });
+
+    // Mevcut oyuncuları gönder
+    conn.send({
+      type: 'players',
+      players: Object.keys(players).filter(p => p !== myId)
+    });
+  });
+
+  conn.on('data', (data) => {
+    if (data.room !== roomId) return;
+
+    if (data.type === 'move') {
+      if (!players[data.from]) createRemotePlayer(data.from, data.x, data.y);
+      const p = players[data.from];
+      p.x = data.x;
+      p.y = data.y;
+      p.sprite.x = data.x;
+      p.sprite.y = data.y;
+    }
+    else if (data.type === 'join') {
+      if (data.id !== myId && !players[data.id]) {
+        createRemotePlayer(data.id);
+      }
+    }
+    else if (data.type === 'players') {
+      data.players.forEach(pid => {
+        if (pid !== myId && !players[pid]) {
+          // Yeni peer'e connect dene
+          const newConn = peer.connect(pid, { metadata: roomId });
+          handleConnection(newConn);
+        }
       });
     }
   });
 
-  conn.on('data', (data) => onDataReceived(data, conn.peer));
   conn.on('close', () => {
     connections = connections.filter(c => c.peer !== conn.peer);
-    if (players[conn.peer]) players[conn.peer].sprite.destroy();
-    delete players[conn.peer];
+    if (players[conn.peer]) {
+      players[conn.peer].sprite.destroy();
+      delete players[conn.peer];
+    }
     updatePlayerCount();
   });
-}
-
-function onDataReceived(data, fromId) {
-  if (data.type === 'move') {
-    if (!players[fromId]) createRemotePlayer(fromId, data.x, data.y, data.color);
-    const p = players[fromId];
-    p.x = data.x;
-    p.y = data.y;
-    p.sprite.x = data.x;
-    p.sprite.y = data.y;
-  }
-  else if (data.type === 'existingPlayers') {
-    for (const [pid, pos] of Object.entries(data.players)) {
-      if (pid !== myId && !players[pid]) {
-        createRemotePlayer(pid, pos.x, pos.y, pos.color);
-      }
-    }
-  }
 }
 
 function updatePlayerCount() {
@@ -133,33 +163,24 @@ function updatePlayerCount() {
 
 // ============== PHASER ==============
 function preload() {
-  // Ücretsiz pixel art karakter (sen değiştirebilirsin)
   this.load.image('player', 'https://labs.phaser.io/assets/sprites/phaser-dude.png');
-  // Arka plan müziği (ücretsiz örnek - loop)
-  this.load.audio('bgm', 'https://cdn.pixabay.com/audio/2022/03/15/audio_6d4f8e6e8e.mp3'); // örnek loop müzik
+  this.load.audio('bgm', 'https://cdn.pixabay.com/audio/2022/03/15/audio_6d4f8e6e8e.mp3');
   this.load.audio('jump', 'https://labs.phaser.io/assets/audio/jump.ogg');
 }
 
 function create() {
   this.cameras.main.setBackgroundColor('#334455');
-
-  // Müzik
   music = this.sound.add('bgm', { loop: true, volume: 0.4 });
   jumpSound = this.sound.add('jump', { volume: 0.7 });
   music.play();
 
-  // Basit zemin
   const platforms = this.physics.add.staticGroup();
   platforms.create(480, 520, null).setSize(960, 40).refreshBody().setVisible(false);
 
-  // Yerçekimi + çarpışma grubu
-  this.physics.world.setBounds(0, 0, 960, 540);
-
-  // Yerel oyuncu oluştur
   const colors = [0xffffff, 0xff5555, 0x55ff55, 0x5555ff, 0xffff55];
-  const myColor = colors[Math.floor(Math.random()*colors.length)];
+  const myColor = colors[Math.floor(Math.random() * colors.length)];
 
-  localPlayer = this.physics.add.sprite(100, 100, 'player');
+  localPlayer = this.physics.add.sprite(100 + Math.random()*200, 100, 'player');
   localPlayer.setCollideWorldBounds(true);
   localPlayer.setBounce(0.1);
   localPlayer.setTint(myColor);
@@ -171,11 +192,9 @@ function create() {
     sprite: localPlayer,
     x: localPlayer.x,
     y: localPlayer.y,
-    color: myColor,
-    tint: myColor
+    color: myColor
   };
 
-  // Tuşlar
   keys = this.input.keyboard.addKeys({
     left: Phaser.Input.Keyboard.KeyCodes.A,
     right: Phaser.Input.Keyboard.KeyCodes.D,
@@ -183,23 +202,14 @@ function create() {
     up: Phaser.Input.Keyboard.KeyCodes.W
   });
 
-  // Basit anahtar + kapı (örnek)
+  // Basit anahtar-kapı örneği
   const key = this.add.rectangle(800, 100, 30, 40, 0xffdd00).setOrigin(0.5);
   const door = this.add.rectangle(880, 460, 60, 100, 0x00aaff).setOrigin(0.5);
-
   this.physics.add.existing(key, true);
   this.physics.add.existing(door, true);
 
-  // Anahtar toplama
-  this.physics.add.overlap(localPlayer, key, () => {
-    key.destroy();
-    alert("Anahtar alındı! Kapıya gidin!");
-  }, null, this);
-
-  // Kapı girişi (hepsi girerse win)
-  this.physics.add.overlap(localPlayer, door, () => {
-    if (!key.active) alert("Tebrikler! Seviye bitti (şimdilik)");
-  }, null, this);
+  this.physics.add.overlap(localPlayer, key, () => { key.destroy(); alert("Anahtar alındı!"); });
+  this.physics.add.overlap(localPlayer, door, () => { if (!key.active) alert("Seviye tamam!"); });
 }
 
 function update() {
@@ -208,7 +218,6 @@ function update() {
   let vx = 0;
   if (keys.left.isDown) vx = -220;
   if (keys.right.isDown) vx = 220;
-
   localPlayer.setVelocityX(vx);
 
   if ((keys.jump.isDown || keys.up.isDown) && localPlayer.body.touching.down) {
@@ -216,29 +225,33 @@ function update() {
     jumpSound.play();
   }
 
-  // Pozisyon değiştiyse herkese gönder (throttle basit)
-  if (Math.abs(localPlayer.x - players[myId].x) > 3 || Math.abs(localPlayer.y - players[myId].y) > 3) {
+  // Pozisyon güncelle + broadcast
+  if (Math.abs(localPlayer.x - players[myId].x) > 4 || Math.abs(localPlayer.y - players[myId].y) > 4) {
     players[myId].x = localPlayer.x;
     players[myId].y = localPlayer.y;
 
     connections.forEach(conn => {
-      conn.send({
-        type: 'move',
-        x: localPlayer.x,
-        y: localPlayer.y,
-        color: players[myId].color
-      });
+      if (conn.open) {
+        conn.send({
+          type: 'move',
+          from: myId,
+          x: localPlayer.x,
+          y: localPlayer.y,
+          room: roomId
+        });
+      }
     });
   }
 }
 
-function createRemotePlayer(id, x, y, color) {
-  const remote = game.scene.scenes[0].physics.add.sprite(x, y, 'player');
-  remote.setTint(color);
+function createRemotePlayer(id, x = 200, y = 200) {
+  const scene = game.scene.scenes[0];
+  const remote = scene.physics.add.sprite(x, y, 'player');
+  remote.setTint(players[myId]?.color || 0xffffff); // basit renk
   remote.setCollideWorldBounds(true);
-  remote.body.setAllowGravity(false); // remote'lar için basit takibi
+  remote.body.setAllowGravity(false);
 
-  players[id] = { sprite: remote, x, y, color, tint: color };
+  players[id] = { sprite: remote, x, y };
 }
 </script>
 </body>
