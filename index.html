@@ -2,87 +2,48 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>Chatt Web - Discord Klonu</title>
+<title>Mini Pico Park Multiplayer</title>
 <style>
-body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; height:100vh; background:#36393f; color:white; }
-#sidebar { width:250px; background:#2f3136; display:flex; flex-direction:column; padding:10px; }
-#logo { text-align:center; font-size:20px; font-weight:bold; color:#7289da; margin-bottom:10px; }
-#users { flex:1; overflow-y:auto; }
-.user { padding:5px 10px; margin:5px 0; border-radius:5px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; background:#40444b; }
-.user:hover { background:#5865f2; }
-.user.admin { background:#ff4757; }
-.user .status { width:10px; height:10px; border-radius:50%; margin-right:5px; }
-#main { flex:1; display:flex; flex-direction:column; position:relative; }
-#chat { flex:1; overflow-y:auto; padding:10px; }
-.msg { background:#40444b; padding:5px 10px; border-radius:5px; margin:5px 0; display:flex; align-items:center; }
-.msg.admin { border:2px solid #ff4757; }
-.msg img.avatar { width:30px; height:30px; border-radius:50%; margin-right:8px; }
-.msg button { background:#ff4d4d; border:none; padding:2px 6px; border-radius:5px; cursor:pointer; }
-.msg button:hover { background:#ff1a1a; }
-#input-container { display:flex; padding:10px; gap:5px; background:#2f3136; }
-#input-container input { flex:1; padding:8px; border-radius:5px; border:none; }
-#input-container button { padding:8px 12px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
-#input-container button:hover { background:#5b6eae; }
-#loginModal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; justify-content:center; align-items:center; z-index:999; }
-#loginModal .modal-content { background:#2f3136; padding:20px; border-radius:10px; display:flex; flex-direction:column; gap:10px; width:300px; }
-#loginModal input { padding:8px; border-radius:5px; border:none; width:100%; }
-#loginModal button { padding:8px; border-radius:5px; border:none; background:#7289da; color:white; cursor:pointer; }
-#loginModal button:hover { background:#5b6eae; }
-#profilePanel { position:absolute; bottom:10px; left:10px; background:#2f3136; padding:10px; border-radius:8px; display:flex; align-items:center; gap:10px; }
-#profilePanel img { width:40px; height:40px; border-radius:50%; cursor:pointer; }
-#profilePanel span { cursor:pointer; }
-.status-dot { width:12px; height:12px; border-radius:50%; margin-right:5px; display:inline-block; }
-.status-online { background:#43b581; }
-.status-offline { background:#747f8d; }
-.status-idle { background:#faa61a; }
-.status-dnd { background:#f04747; }
+body { margin:0; font-family:sans-serif; background:#222; color:white; display:flex; flex-direction:column; align-items:center; }
+canvas { background:#333; margin-top:10px; border:2px solid #555; }
+#loginModal, #roomModal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:999; }
+.modal-content { background:#444; padding:20px; border-radius:10px; display:flex; flex-direction:column; gap:10px; }
+button { cursor:pointer; }
+#leaderboard { margin-top:10px; width:400px; background:#2f2f2f; padding:10px; border-radius:8px; }
+#roomsList { margin-top:10px; background:#2f2f2f; padding:10px; border-radius:8px; width:300px; }
+.roomItem { padding:5px; background:#555; margin:5px 0; border-radius:5px; cursor:pointer; }
+.roomItem:hover { background:#7289da; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"></script>
 </head>
 <body>
 
-<div id="sidebar">
-  <div id="logo">🔥 Chatt Web</div>
-  <div id="users"></div>
-</div>
-
-<div id="main">
-  <div id="chat"></div>
-  <div id="input-container">
-    <input id="message" placeholder="Mesaj yaz..." disabled>
-    <button id="sendBtn" disabled>Gönder</button>
-    <button id="voiceBtn" disabled>Sesli Sohbete Katıl</button>
-  </div>
-  <div id="profilePanel">
-    <img id="profileAvatar" src="https://i.pravatar.cc/40" title="Avatarını değiştir">
-    <span id="profileNickname">Nickname</span>
-    <select id="statusSelect">
-      <option value="online">Çevrimiçi</option>
-      <option value="idle">Boşta</option>
-      <option value="dnd">Rahatsız Etme</option>
-      <option value="offline">Offline</option>
-    </select>
-  </div>
-</div>
-
 <div id="loginModal">
   <div class="modal-content">
     <h3>Giriş / Kayıt</h3>
     <input id="loginUsername" placeholder="Kullanıcı adı">
-    <input id="loginPassword" type="password" placeholder="Şifre">
     <input id="loginNickname" placeholder="Nickname">
-    <input id="loginEmail" placeholder="Email (opsiyonel)">
     <input id="loginAvatar" placeholder="Avatar URL (opsiyonel)">
-    <button id="loginBtn">Giriş Yap / Kayıt Ol</button>
+    <button id="loginBtn">Giriş Yap</button>
   </div>
 </div>
 
+<div id="roomModal" style="display:none;">
+  <div class="modal-content">
+    <h3>Oda Kur / Odaya Katıl</h3>
+    <button id="createRoomBtn">Oda Kur</button>
+    <div id="roomsList"></div>
+  </div>
+</div>
+
+<canvas id="gameCanvas" width="600" height="400"></canvas>
+<div id="leaderboard"><h4>Leaderboard</h4><ul id="scores"></ul></div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, push, onChildAdded, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, onValue, push, update, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-// Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBhZF2igk9MZF-UEVYQEJl9N6IhMAeRsLU",
   authDomain: "chatt-5c23d.firebaseapp.com",
@@ -95,139 +56,144 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-let username, nickname, avatar, isAdmin=false, status="online";
-
+let username="", nickname="", avatar="https://i.pravatar.cc/40";
+let roomId = "";
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 const loginModal = document.getElementById("loginModal");
-const messageInput = document.getElementById("message");
-const sendBtn = document.getElementById("sendBtn");
-const voiceBtn = document.getElementById("voiceBtn");
-const chatDiv = document.getElementById("chat");
-const usersDiv = document.getElementById("users");
-const profileAvatar = document.getElementById("profileAvatar");
-const profileNickname = document.getElementById("profileNickname");
-const statusSelect = document.getElementById("statusSelect");
+const roomModal = document.getElementById("roomModal");
+const roomsListDiv = document.getElementById("roomsList");
+const leaderboardUl = document.getElementById("scores");
 
-// Küfür filtresi
-const banned = ["ananı","orospu","amk","sik","piç","yarrak"];
+let players = {};
+let scores = {};
+const keys={};
 
-function filterText(text){
-  let filtered = text;
-  banned.forEach(word=>{
-    const regex = new RegExp(word,"gi");
-    filtered = filtered.replace(regex,"****");
-  });
-  return filtered;
-}
-
-// Login / Kayıt
+// Login
 document.getElementById("loginBtn").onclick = ()=>{
   username = document.getElementById("loginUsername").value.trim();
-  const password = document.getElementById("loginPassword").value.trim();
   nickname = document.getElementById("loginNickname").value.trim();
-  avatar = document.getElementById("loginAvatar").value.trim() || "https://i.pravatar.cc/40";
-  const email = document.getElementById("loginEmail").value.trim();
-
-  if(!username || !password || !nickname) return alert("Kullanıcı adı, şifre ve nickname zorunlu!");
-  
-  // Aloak1 admin kontrol
-  if(username==="Aloak1" && password!=="1234") return alert("Yanlış şifre!");
-  if(username==="Aloak1") isAdmin=true;
-
-  // localStorage ile sakla
-  localStorage.setItem("username",username);
-  localStorage.setItem("nickname",nickname);
-  localStorage.setItem("avatar",avatar);
-  localStorage.setItem("isAdmin",isAdmin);
+  avatar = document.getElementById("loginAvatar").value.trim() || avatar;
+  if(!username || !nickname) return alert("Zorunlu alanlar dolu değil!");
 
   loginModal.style.display="none";
-  messageInput.disabled=false;
-  sendBtn.disabled=false;
-  voiceBtn.disabled=false;
+  roomModal.style.display="flex";
 
-  profileAvatar.src=avatar;
-  profileNickname.innerText=nickname;
-
-  push(ref(db,"users"),{username,nickname,avatar,email,admin:isAdmin,online:true,status:status});
+  listenRooms();
 }
 
-// F5 sonrası otomatik login
-window.onload = ()=>{
-  if(localStorage.getItem("username")){
-    username = localStorage.getItem("username");
-    nickname = localStorage.getItem("nickname");
-    avatar = localStorage.getItem("avatar");
-    isAdmin = localStorage.getItem("isAdmin")==="true";
-    loginModal.style.display="none";
-    messageInput.disabled=false;
-    sendBtn.disabled=false;
-    voiceBtn.disabled=false;
-    profileAvatar.src=avatar;
-    profileNickname.innerText=nickname;
-    push(ref(db,"users"),{username,nickname,avatar,admin:isAdmin,online:true,status:status});
-  }
-}
-
-// Mesaj gönderme
-window.sendMessage = ()=>{
-  const text = filterText(messageInput.value.trim());
-  if(!text) return;
-  push(ref(db,"messages"),{uid:username,nickname,avatar,text});
-  messageInput.value="";
-}
-
-// Mesaj silme
-window.deleteMessage = (msg)=>{
-  if(msg.uid===username || isAdmin) remove(ref(db,"messages/"+msg.id));
-}
-
-// Banlama
-window.banUser = (userId)=>{
-  if(isAdmin) remove(ref(db,"users/"+userId));
-}
-
-// Mesajları ekleme
-onChildAdded(ref(db,"messages"), snap=>{
-  const msg = snap.val();
-  const id = snap.key;
-  const div = document.createElement("div");
-  div.className="msg";
-  if(msg.uid==="Aloak1") div.classList.add("admin");
-  div.id="msg-"+id;
-  const avatarImg = `<img class="avatar" src="${msg.avatar}" />`;
-  if(msg.uid===username || isAdmin){
-    div.innerHTML=`${avatarImg} <span><b>${msg.nickname}:</b> ${msg.text}</span> <button onclick="deleteMessage({id:'${id}',uid:'${msg.uid}'})">Sil</button>`;
-  } else {
-    div.innerHTML=`${avatarImg} <span><b>${msg.nickname}:</b> ${msg.text}</span>`;
-  }
-  chatDiv.appendChild(div);
-  chatDiv.scrollTop=chatDiv.scrollHeight;
-});
-
-// Kullanıcı listesi
-onValue(ref(db,"users"), snap=>{
-  usersDiv.innerHTML="";
-  snap.forEach(child=>{
-    const data = child.val();
-    const uname = child.key;
-    const div = document.createElement("div");
-    div.className="user";
-    let statusClass = "status-online";
-    if(data.status==="idle") statusClass="status-idle";
-    else if(data.status==="dnd") statusClass="status-dnd";
-    else if(data.status==="offline") statusClass="status-offline";
-    if(data.admin) div.classList.add("admin");
-    div.innerHTML=`<span class="status-dot ${statusClass}"></span><img class="avatar" src="${data.avatar}" /> ${data.nickname} ${isAdmin ? `<button onclick="banUser('${uname}')">Ban</button>` : ""}`;
-    usersDiv.appendChild(div);
+// Rooms
+function listenRooms(){
+  const roomsRef = ref(db,"game/rooms");
+  onValue(roomsRef,snap=>{
+    roomsListDiv.innerHTML="";
+    const data = snap.val()||{};
+    for(const rId in data){
+      const div = document.createElement("div");
+      div.className="roomItem";
+      div.textContent=`${rId} | Level ${data[rId].level || 1}`;
+      div.onclick=()=>joinRoom(rId);
+      roomsListDiv.appendChild(div);
+    }
   });
-});
+}
 
-// Event listeners
-sendBtn.addEventListener("click", sendMessage);
-messageInput.addEventListener("keypress", e=>{ if(e.key==="Enter") sendMessage(); });
-voiceBtn.onclick=()=>{ alert("Sesli sohbet demo açıldı!"); }
-profileAvatar.onclick=()=>{ let newAvatar=prompt("Yeni Avatar URL:"); if(newAvatar){ profileAvatar.src=newAvatar; avatar=newAvatar; localStorage.setItem("avatar",avatar); } }
-statusSelect.onchange=()=>{ status=statusSelect.value; }
+document.getElementById("createRoomBtn").onclick = ()=>{
+  const newRoomId = "room"+Math.floor(Math.random()*10000);
+  const level = prompt("Level seç (1-5)","1");
+  set(ref(db,"game/rooms/"+newRoomId),{
+    host: username,
+    level: parseInt(level),
+    players:{}
+  });
+  joinRoom(newRoomId);
+}
 
+function joinRoom(rId){
+  roomId=rId;
+  const playerRef = ref(db,"game/rooms/"+roomId+"/players/"+username);
+  set(playerRef,{x:50,y:50,nickname,avatar});
+  roomModal.style.display="none";
+  gameLoop();
+  listenRoomPlayers();
+  listenRoomScores();
+}
+
+// Movement
+window.addEventListener("keydown",e=>{ keys[e.key]=true; });
+window.addEventListener("keyup",e=>{ keys[e.key]=false; });
+
+function movePlayer(){
+  if(!username || !roomId) return;
+  const p = players[username];
+  if(!p) return;
+  let speed=2;
+  if(keys["ArrowUp"]||keys["w"]) p.y-=speed;
+  if(keys["ArrowDown"]||keys["s"]) p.y+=speed;
+  if(keys["ArrowLeft"]||keys["a"]) p.x-=speed;
+  if(keys["ArrowRight"]||keys["d"]) p.x+=speed;
+  p.x=Math.max(0,Math.min(canvas.width-20,p.x));
+  p.y=Math.max(0,Math.min(canvas.height-20,p.y));
+  set(ref(db,"game/rooms/"+roomId+"/players/"+username),p);
+}
+
+// Listen players
+function listenRoomPlayers(){
+  const roomPlayersRef = ref(db,"game/rooms/"+roomId+"/players");
+  onValue(roomPlayersRef,snap=>{
+    players = snap.val()||{};
+    drawGame();
+  });
+}
+
+// Listen scores
+function listenRoomScores(){
+  const roomScoresRef = ref(db,"game/rooms/"+roomId+"/scores");
+  onValue(roomScoresRef,snap=>{
+    scores = snap.val()||{};
+    updateLeaderboard();
+  });
+}
+
+// Draw
+function drawGame(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(const id in players){
+    const pl = players[id];
+    ctx.fillStyle=(id===username)?"#7289da":"#43b581";
+    ctx.fillRect(pl.x,pl.y,20,20);
+    ctx.fillStyle="white";
+    ctx.fillText(pl.nickname,pl.x,pl.y-5);
+  }
+}
+
+// Score demo
+let score=0;
+function updateScore(){
+  if(!username || !roomId) return;
+  score+=1;
+  set(ref(db,"game/rooms/"+roomId+"/scores/"+username),{nickname,score});
+  updateLeaderboard();
+}
+
+// Leaderboard
+function updateLeaderboard(){
+  leaderboardUl.innerHTML="";
+  const sorted = Object.entries(scores).sort((a,b)=>b[1].score - a[1].score);
+  sorted.forEach(([u,v])=>{
+    const li = document.createElement("li");
+    li.textContent=`${v.nickname}: ${v.score}`;
+    leaderboardUl.appendChild(li);
+  });
+}
+
+// Game loop
+function gameLoop(){
+  movePlayer();
+  drawGame();
+  updateScore();
+  requestAnimationFrame(gameLoop);
+}
 </script>
 </body>
 </html>
