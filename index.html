@@ -1,101 +1,245 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <title>Pico Park Fix</title>
-    <style>
-        body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
-        #menu { background: #333; padding: 20px; border-radius: 10px; text-align: center; }
-        input { display: block; margin: 10px auto; padding: 10px; border-radius: 5px; border: none; }
-        button { padding: 10px 20px; background: #27ae60; color: white; border: none; cursor: pointer; border-radius: 5px; }
-        canvas { background: #fff; border: 5px solid #555; display: none; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pico Park Benzeri Mini Oyun</title>
+  <style>
+    body { margin:0; background:#111; font-family:Arial; color:#eee; }
+    #game-container { position:relative; margin:20px auto; }
+    #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; }
+    #join { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; padding:30px; border-radius:12px; text-align:center; }
+  </style>
+
+  <!-- Phaser 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <!-- PeerJS (P2P multiplayer) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-    <div id="menu">
-        <h2>PICO PARK CLONE</h2>
-        <input type="text" id="pName" placeholder="Adın">
-        <input type="text" id="rName" placeholder="Oda Adı">
-        <button id="joinBtn">OYUNA KATIL</button>
-        <p id="status" style="font-size: 12px; color: #e74c3c;"></p>
-    </div>
+<div id="join">
+  <h2>Pico Park Mini</h2>
+  <p>ID'nizi arkadaşınıza verin veya arkadaşınızın ID'sini girin</p>
+  <input id="myPeerId" readonly style="width:220px; padding:8px;" /><br><br>
+  <input id="friendId" placeholder="Arkadaş ID'si" style="width:220px; padding:8px;" /><br><br>
+  <button onclick="startGame()" style="padding:12px 30px; font-size:18px;">Oyuna Başla</button>
+</div>
 
-    <canvas id="gameCanvas" width="800" height="400"></canvas>
+<div id="game-container"></div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+<div id="ui">Oyuncular: <span id="playerCount">1</span></div>
 
-        // !!! BURAYI DOLDURMAZSAN OYUN BAŞLAMAZ !!!
-        const firebaseConfig = {
-            apiKey: "BURAYA_KENDI_ANAHTARIN",
-            authDomain: "PROJE_ADIN.firebaseapp.com",
-            databaseURL: "https://PROJE_ADIN-default-rtdb.firebaseio.com",
-            projectId: "PROJE_ADIN",
-            storageBucket: "PROJE_ADIN.appspot.com",
-            appId: "..."
-        };
+<script>
+// ============== OYUN KODU ==============
+let peer;
+let connections = [];
+let localPlayer;
+let players = {};        // peerId → {sprite, x, y, ...}
+let keys = {};           // tuşlar
+let myId;
 
-        const joinBtn = document.getElementById("joinBtn");
-        const status = document.getElementById("status");
+const config = {
+  type: Phaser.AUTO,
+  width: 960,
+  height: 540,
+  parent: 'game-container',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 800 }, debug: false }
+  },
+  scene: { preload, create, update }
+};
 
-        joinBtn.onclick = () => {
-            if(firebaseConfig.apiKey === "BURAYA_KENDI_ANAHTARIN") {
-                status.innerText = "Hata: Önce Firebase ayarlarını kodun içine yapıştırmalısın!";
-                return;
-            }
+let game;
+let music, jumpSound;
 
-            try {
-                const app = initializeApp(firebaseConfig);
-                const db = getDatabase(app);
-                startGame(db);
-            } catch (e) {
-                status.innerText = "Firebase Bağlantı Hatası!";
-                console.error(e);
-            }
-        };
+function startGame() {
+  const friendId = document.getElementById('friendId').value.trim();
+  document.getElementById('join').style.display = 'none';
+  document.getElementById('game-container').style.display = 'block';
 
-        function startGame(db) {
-            document.getElementById("menu").style.display = "none";
-            const canvas = document.getElementById("gameCanvas");
-            canvas.style.display = "block";
-            const ctx = canvas.getContext("2d");
+  peer = new Peer();   // kendi ID'nizi otomatik alır
 
-            const myId = "p" + Math.floor(Math.random() * 1000);
-            const room = document.getElementById("rName").value || "genel";
-            const pName = document.getElementById("pName").value || "Oyuncu";
-            
-            let players = {};
-            let myPos = { x: 100, y: 300, color: "red", name: pName };
+  peer.on('open', (id) => {
+    myId = id;
+    document.getElementById('myPeerId').value = id;
+    console.log("Benim ID:", id);
 
-            const roomRef = ref(db, `rooms/${room}/players/${myId}`);
-            set(roomRef, myPos);
-            onDisconnect(roomRef).remove();
+    if (friendId) {
+      connectToPeer(friendId);
+    }
+  });
 
-            onValue(ref(db, `rooms/${room}/players`), (snap) => {
-                players = snap.val() || {};
-            });
+  peer.on('connection', (conn) => {
+    handleConnection(conn);
+  });
 
-            // Hareket
-            window.onkeydown = (e) => {
-                if(e.key === "ArrowRight") myPos.x += 10;
-                if(e.key === "ArrowLeft") myPos.x -= 10;
-                set(roomRef, myPos);
-            };
+  game = new Phaser.Game(config);
+}
 
-            function draw() {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                Object.values(players).forEach(p => {
-                    ctx.fillStyle = p.color;
-                    ctx.fillRect(p.x, p.y, 40, 40);
-                    ctx.fillStyle = "black";
-                    ctx.fillText(p.name, p.x, p.y - 5);
-                });
-                requestAnimationFrame(draw);
-            }
-            draw();
-        }
-    </script>
+function connectToPeer(targetId) {
+  const conn = peer.connect(targetId);
+  handleConnection(conn);
+}
+
+function handleConnection(conn) {
+  conn.on('open', () => {
+    connections.push(conn);
+    console.log("Bağlandı:", conn.peer);
+    updatePlayerCount();
+
+    // Yeni oyuncuya mevcut oyuncuları gönder
+    if (localPlayer) {
+      conn.send({
+        type: 'existingPlayers',
+        players: Object.fromEntries(
+          Object.entries(players).map(([pid, p]) => [pid, {x:p.x, y:p.y, color:p.tint}])
+        )
+      });
+    }
+  });
+
+  conn.on('data', (data) => onDataReceived(data, conn.peer));
+  conn.on('close', () => {
+    connections = connections.filter(c => c.peer !== conn.peer);
+    if (players[conn.peer]) players[conn.peer].sprite.destroy();
+    delete players[conn.peer];
+    updatePlayerCount();
+  });
+}
+
+function onDataReceived(data, fromId) {
+  if (data.type === 'move') {
+    if (!players[fromId]) createRemotePlayer(fromId, data.x, data.y, data.color);
+    const p = players[fromId];
+    p.x = data.x;
+    p.y = data.y;
+    p.sprite.x = data.x;
+    p.sprite.y = data.y;
+  }
+  else if (data.type === 'existingPlayers') {
+    for (const [pid, pos] of Object.entries(data.players)) {
+      if (pid !== myId && !players[pid]) {
+        createRemotePlayer(pid, pos.x, pos.y, pos.color);
+      }
+    }
+  }
+}
+
+function updatePlayerCount() {
+  document.getElementById('playerCount').innerText = connections.length + 1;
+}
+
+// ============== PHASER ==============
+function preload() {
+  // Ücretsiz pixel art karakter (sen değiştirebilirsin)
+  this.load.image('player', 'https://labs.phaser.io/assets/sprites/phaser-dude.png');
+  // Arka plan müziği (ücretsiz örnek - loop)
+  this.load.audio('bgm', 'https://cdn.pixabay.com/audio/2022/03/15/audio_6d4f8e6e8e.mp3'); // örnek loop müzik
+  this.load.audio('jump', 'https://labs.phaser.io/assets/audio/jump.ogg');
+}
+
+function create() {
+  this.cameras.main.setBackgroundColor('#334455');
+
+  // Müzik
+  music = this.sound.add('bgm', { loop: true, volume: 0.4 });
+  jumpSound = this.sound.add('jump', { volume: 0.7 });
+  music.play();
+
+  // Basit zemin
+  const platforms = this.physics.add.staticGroup();
+  platforms.create(480, 520, null).setSize(960, 40).refreshBody().setVisible(false);
+
+  // Yerçekimi + çarpışma grubu
+  this.physics.world.setBounds(0, 0, 960, 540);
+
+  // Yerel oyuncu oluştur
+  const colors = [0xffffff, 0xff5555, 0x55ff55, 0x5555ff, 0xffff55];
+  const myColor = colors[Math.floor(Math.random()*colors.length)];
+
+  localPlayer = this.physics.add.sprite(100, 100, 'player');
+  localPlayer.setCollideWorldBounds(true);
+  localPlayer.setBounce(0.1);
+  localPlayer.setTint(myColor);
+  localPlayer.body.setGravityY(800);
+
+  this.physics.add.collider(localPlayer, platforms);
+
+  players[myId] = {
+    sprite: localPlayer,
+    x: localPlayer.x,
+    y: localPlayer.y,
+    color: myColor,
+    tint: myColor
+  };
+
+  // Tuşlar
+  keys = this.input.keyboard.addKeys({
+    left: Phaser.Input.Keyboard.KeyCodes.A,
+    right: Phaser.Input.Keyboard.KeyCodes.D,
+    jump: Phaser.Input.Keyboard.KeyCodes.SPACE,
+    up: Phaser.Input.Keyboard.KeyCodes.W
+  });
+
+  // Basit anahtar + kapı (örnek)
+  const key = this.add.rectangle(800, 100, 30, 40, 0xffdd00).setOrigin(0.5);
+  const door = this.add.rectangle(880, 460, 60, 100, 0x00aaff).setOrigin(0.5);
+
+  this.physics.add.existing(key, true);
+  this.physics.add.existing(door, true);
+
+  // Anahtar toplama
+  this.physics.add.overlap(localPlayer, key, () => {
+    key.destroy();
+    alert("Anahtar alındı! Kapıya gidin!");
+  }, null, this);
+
+  // Kapı girişi (hepsi girerse win)
+  this.physics.add.overlap(localPlayer, door, () => {
+    if (!key.active) alert("Tebrikler! Seviye bitti (şimdilik)");
+  }, null, this);
+}
+
+function update() {
+  if (!localPlayer) return;
+
+  let vx = 0;
+  if (keys.left.isDown) vx = -220;
+  if (keys.right.isDown) vx = 220;
+
+  localPlayer.setVelocityX(vx);
+
+  if ((keys.jump.isDown || keys.up.isDown) && localPlayer.body.touching.down) {
+    localPlayer.setVelocityY(-450);
+    jumpSound.play();
+  }
+
+  // Pozisyon değiştiyse herkese gönder (throttle basit)
+  if (Math.abs(localPlayer.x - players[myId].x) > 3 || Math.abs(localPlayer.y - players[myId].y) > 3) {
+    players[myId].x = localPlayer.x;
+    players[myId].y = localPlayer.y;
+
+    connections.forEach(conn => {
+      conn.send({
+        type: 'move',
+        x: localPlayer.x,
+        y: localPlayer.y,
+        color: players[myId].color
+      });
+    });
+  }
+}
+
+function createRemotePlayer(id, x, y, color) {
+  const remote = game.scene.scenes[0].physics.add.sprite(x, y, 'player');
+  remote.setTint(color);
+  remote.setCollideWorldBounds(true);
+  remote.body.setAllowGravity(false); // remote'lar için basit takibi
+
+  players[id] = { sprite: remote, x, y, color, tint: color };
+}
+</script>
 </body>
 </html>
